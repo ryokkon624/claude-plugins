@@ -2,7 +2,7 @@
 
 harness-review の設計判断を 1 決定 1 ファイルで記録する。形式は Status / Date / Context / Decision / Consequences。
 
-決定を変えるときは既存の ADR を書き換えず、新しい ADR を追加して旧 ADR の Status を `Superseded by ADR-XXXX` にする。
+新しい設計判断をしたら、実装より先に ADR を追加する。決定を変えるときは既存の ADR を書き換えず、新しい ADR を追加して旧 ADR の Status を `Superseded by ADR-XXXX` にする。
 
 | # | 決定 |
 |---|---|
