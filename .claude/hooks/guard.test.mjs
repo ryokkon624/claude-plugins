@@ -22,6 +22,7 @@ function run(script, input, extraEnv = {}) {
 }
 
 const TARGET = 'C:/work/java-migration/migration-agent-base';
+const POSIX_PROJECT = '/' + PROJECT[0].toLowerCase() + PROJECT.slice(2).replace(/\\/g, '/'); // C:\x\y → /c/x/y
 const scratch = path.join(os.tmpdir(), 'claude-scratch-test');
 const W = (file_path, extra = {}) => ({ tool_name: 'Write', tool_input: { file_path }, cwd: PROJECT, ...extra });
 const B = (command, extra = {}) => ({ tool_name: 'Bash', tool_input: { command }, cwd: PROJECT, ...extra });
@@ -90,6 +91,18 @@ const cases = [
   ['guard-bash.mjs', B(`ls ${TARGET}/.claude`, { cwd: TARGET }), 0, 'read-only command with cwd outside'],
   ['guard-bash.mjs', B('echo x > output/harness-review/test.txt'), 0, 'redirect inside project'],
   ['guard-bash.mjs', B('cd output && echo x > test.txt'), 0, 'cd inside project then redirect'],
+  ['guard-bash.mjs', B(`cd ${POSIX_PROJECT} && git add -A && git commit -m x`), 0, 'cd to the project via a Git Bash /c/ path then commit'],
+  ['guard-bash.mjs', B(`echo x > ${POSIX_PROJECT}/output/t.txt`), 0, 'redirect to a Git Bash /c/ path inside the project'],
+  ['guard-bash.mjs', B('echo x > /c/work/java-migration/migration-agent-base/t.txt'), 2, 'redirect to a Git Bash /c/ path outside is blocked'],
+  ['guard-bash.mjs', B(`cd C:/other && ls; cd ${PROJECT.replace(/\\/g, '/')} && echo x > f.txt`), 0, 'non-writing cd outside then write inside is fine'],
+  // CLAUDE_PROJECT_DIR handed to the hook in Git Bash form (as Claude Code does on Windows)
+  ['guard-bash.mjs', B(`cd ${POSIX_PROJECT} && git add -A && git commit -m x`), 0, 'POSIX CLAUDE_PROJECT_DIR: cd /c/ project then commit', { CLAUDE_PROJECT_DIR: POSIX_PROJECT }],
+  ['guard-bash.mjs', B('echo x > output/t.txt'), 0, 'POSIX CLAUDE_PROJECT_DIR: relative write inside (Windows cwd)', { CLAUDE_PROJECT_DIR: POSIX_PROJECT }],
+  ['guard-bash.mjs', B(`echo x > ${TARGET}/t.txt`), 2, 'POSIX CLAUDE_PROJECT_DIR: write outside is blocked', { CLAUDE_PROJECT_DIR: POSIX_PROJECT }],
+  ['guard-writes.mjs', W(path.join(PROJECT, 'README.md')), 0, 'POSIX CLAUDE_PROJECT_DIR: Write inside (Windows path)', { CLAUDE_PROJECT_DIR: POSIX_PROJECT }],
+  ['guard-writes.mjs', W(path.join(PROJECT, '.claude', 'hooks', 'guard-bash.mjs')), 2, 'POSIX CLAUDE_PROJECT_DIR: guard file still protected', { CLAUDE_PROJECT_DIR: POSIX_PROJECT }],
+  ['guard-writes.mjs', W(`${TARGET}/CLAUDE.md`), 2, 'POSIX CLAUDE_PROJECT_DIR: Write outside is blocked', { CLAUDE_PROJECT_DIR: POSIX_PROJECT }],
+  ['guard-bash.mjs', B('echo x > output/t.txt', { cwd: POSIX_PROJECT }), 0, 'POSIX cwd in hook input: relative write inside'],
   ['guard-bash.mjs', B('node script.mjs > /dev/null 2>&1'), 0, '/dev/null and 2>&1 are not write targets'],
   ['guard-bash.mjs', B(`echo x > ${path.join(os.tmpdir(), 'x.txt').replace(/\\/g, '/')}`), 0, 'redirect to temp'],
   ['guard-bash.mjs', B('echo x > /tmp/x.txt'), 0, 'redirect to /tmp'],

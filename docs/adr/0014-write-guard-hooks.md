@@ -128,3 +128,9 @@
 5. Decision に「`output/` の手編集禁止は対象外。パイプラインの subagent が正当に書く場所で、hook からは区別できない」を明記した。
 
 テストは 72 ケース。1・2・5 で Decision を変えたが、往復上限（ユーザー判断で 3 回）に達したため、この時点で確定するかをユーザーに問うた。ユーザーの決定：**反映して確定**（指摘が回を追って周辺の穴埋めになり、既存 ADR との矛盾も無いため）。
+
+### 確定後の /code-review low（実装のみ、Decision は不変）
+
+3 件：(1) Git Bash 形式のパス（`/c/work/...`）を Windows ルート（`C:\c\work\...`）として解決していた。(2) README の逃げ道の説明が `GUARD_OFF` になっていた（正しくは `GUARD_EDIT`）。(3) 書き込みを伴わない `cd <外>` の区間でもパス検査していた。
+
+(1) の調査で分かったこと：Bash 用 hook のプロセスには `CLAUDE_PROJECT_DIR` が Git Bash 形式（`/c/work/claude/claude-plugins`）で渡り、Write 用 hook のプロセスには Windows 形式で渡る。両者が同じ誤った解決結果（`C:\c\work\...`）に揃っていたため、`cd /c/work/claude/claude-plugins && git add …` は「一致」して通り、`cd /c/work && touch …` は止まる、という状態だった。テストは Windows 形式の環境変数しか流していなかったので検知できなかった。対応：`fromPosixDrive()` で環境変数・`cwd`・トークンのいずれも Windows 形式に正規化し、Git Bash 形式の `CLAUDE_PROJECT_DIR` / `cwd` を流すテストを 8 件追加（計 83 ケース）。(2) README を修正。(3) 書き込みを伴わない区間はパス検査しない（実効 cwd の更新だけ）。

@@ -76,7 +76,7 @@ S5 render     script          → report.html / latest.html
 
 ## 書き込み gate（hooks）
 
-`.claude/settings.json` の PreToolUse hook が、レビュー対象（このリポジトリの外）への Write / Edit / Bash 書き込みと、`main` への直接 push を機械的にブロックする（ADR-0014）。許可されるのは このリポジトリ、`~/.claude/projects/`（auto memory）、scratchpad と一時ディレクトリだけ。guard 自身（`.claude/settings.json`、`.claude/hooks/`）も保護されているので、変更するときは `CLAUDE_PLUGINS_GUARD_OFF=1` を付けて Claude を起動する。テストは `node .claude/hooks/guard.test.mjs`。
+`.claude/settings.json` の PreToolUse hook が、レビュー対象（このリポジトリの外）への Write / Edit / Bash 書き込みと、`main` への直接 push を機械的にブロックする（ADR-0014）。許可されるのは このリポジトリ、`~/.claude/projects/`（auto memory）、scratchpad と一時ディレクトリだけ。guard 自身（`.claude/settings.json`、`.claude/settings.local.json`、`.claude/hooks/`）も保護されているので、変更するときは `CLAUDE_PLUGINS_GUARD_EDIT=1` を付けて Claude を起動する（自己防衛だけが外れ、プロジェクト外への書き込みと main への push は止まったまま）。`CLAUDE_PLUGINS_GUARD_OFF=1` は両方を止める緊急用。テストは `node .claude/hooks/guard.test.mjs`。
 
 ## 基準のカスタマイズ
 

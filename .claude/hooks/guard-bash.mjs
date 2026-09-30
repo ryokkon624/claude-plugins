@@ -79,7 +79,7 @@ export function decide(input, env = process.env, branchOf = currentBranch) {
       if (!isAllowed(cur, roots.list)) return { allow: false, kind: 'write', reason: `cwd is outside the project: ${cur}`, segment: seg.raw.trim() };
       if (!editOk && isGuardDir(cur, roots.projectDir)) return { allow: false, kind: 'write', reason: `writing from inside the guard directory: ${cur}`, segment: seg.raw.trim() };
     }
-    if (!writing && !cdm) continue;
+    if (!writing) continue; // a bare `cd <outside>` only moves the effective cwd; the write check above covers it
     for (const t of pathTokens(seg.text)) {
       const abs = resolveToken(t, cur);
       if (writing && !editOk && isGuardFile(abs, roots.projectDir)) return { allow: false, kind: 'write', reason: `guard files are protected: ${t.replaceAll(SPACE, ' ')}`, segment: seg.raw.trim() };

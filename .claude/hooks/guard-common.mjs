@@ -3,16 +3,23 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 
+// Git Bash / MSYS drive paths (/c/work/x) → Windows drive paths (C:/work/x). No-op elsewhere.
+export function fromPosixDrive(p) {
+  const m = String(p).match(/^\/([A-Za-z])(\/.*)?$/);
+  return m && process.platform === 'win32' ? `${m[1].toUpperCase()}:${m[2] ?? '/'}` : String(p);
+}
+
 export function norm(p) {
-  let s = path.resolve(p).replace(/\\/g, '/').replace(/\/+$/, '');
+  let s = path.resolve(fromPosixDrive(p)).replace(/\\/g, '/').replace(/\/+$/, '');
   if (process.platform === 'win32') s = s.toLowerCase();
   return s;
 }
 
 export function under(target, root) { return target === root || target.startsWith(root + '/'); }
 
+// CLAUDE_PROJECT_DIR may arrive in Git Bash form (/c/work/x) on Windows; normalize it like every other path.
 export function projectDirOf(env = process.env) {
-  return env.CLAUDE_PROJECT_DIR ? path.resolve(env.CLAUDE_PROJECT_DIR) : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+  return env.CLAUDE_PROJECT_DIR ? path.resolve(fromPosixDrive(env.CLAUDE_PROJECT_DIR)) : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 }
 
 // CLAUDE_PLUGINS_GUARD_OFF=1  : emergency switch, disables both guards entirely (set at Claude Code launch).
@@ -71,5 +78,6 @@ export const SPACE = '';
 export function resolveToken(t, cwd) {
   t = t.replaceAll(SPACE, ' ');
   if (t.startsWith('~')) return norm(path.join(os.homedir(), t.slice(1)));
-  return norm(path.isAbsolute(t) || /^[A-Za-z]:/.test(t) ? t : path.join(cwd || process.cwd(), t));
+  t = fromPosixDrive(t);
+  return norm(path.isAbsolute(t) || /^[A-Za-z]:/.test(t) ? t : path.join(fromPosixDrive(cwd || process.cwd()), t));
 }
