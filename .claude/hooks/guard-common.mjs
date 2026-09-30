@@ -67,6 +67,7 @@ export function pathTokens(cmd) {
     if (/^[a-z]+:\/\//i.test(t)) continue;            // URLs
     if (NULL_DEVICES.has(t.toLowerCase())) continue;
     if (/^-/.test(t)) continue;
+    if (/[?*()]|\\[rntsdw]/.test(t)) continue;         // regex literals / globs (/\r?\n/, *.md) are not paths
     out.push(t);
   }
   return out;

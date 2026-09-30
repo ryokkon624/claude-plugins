@@ -47,7 +47,9 @@ export function decide(input, env = process.env, branchOf = currentBranch) {
   const cmd = String(input?.tool_input?.command ?? '');
   if (!cmd.trim()) return { allow: true, reason: 'empty' };
   const cwd = input?.cwd || process.cwd();
-  const segments = cmd.split(/&&|\|\||;|\||\r?\n/).map((s) => ({ raw: s, text: stripMessages(s) }));
+  // Blank out quoted messages BEFORE splitting, so a `|` or `;` inside a quoted string does not split the command
+  // (which would leave unbalanced quotes and turn regex literals like /\r?\n/ into "paths").
+  const segments = stripMessages(cmd).split(/&&|\|\||;|\||\r?\n/).map((s) => ({ raw: s, text: s }));
 
   // 1. git push to main/master (including --delete)
   if (/\bgit\b/.test(cmd)) {

@@ -118,6 +118,10 @@ const cases = [
   ['guard-bash.mjs', B('cp scratch/guard-bash.mjs .claude/hooks/guard-bash.mjs'), 0, 'GUARD_EDIT allows replacing a hook', EDIT],
   ['guard-bash.mjs', B(`cp a.md ${TARGET}/a.md`), 2, 'GUARD_EDIT still blocks writes outside', EDIT],
   ['guard-bash.mjs', B('git push origin main'), 0, 'GUARD_OFF allows everything', OFF],
+  // guard-bash: quoted separators and regex literals are not paths
+  ['guard-bash.mjs', B(`node -e 'const l=require("fs").readFileSync("a.md","utf8").split(/\\r?\\n/).find(l=>l.startsWith("| A1 "))'`), 0, 'node -e with regex literal and quoted pipe is not a write outside'],
+  ['guard-bash.mjs', B(`echo "a | b" > ${TARGET}/x.txt`), 2, 'quoted pipe does not hide a redirect into target'],
+  ['guard-bash.mjs', B('grep -rn "foo|bar" .claude | head'), 0, 'quoted pipe in a read-only command'],
   // guard-bash: robustness
   ['guard-bash.mjs', '{not json', 2, 'unparseable stdin fails closed'],
   ['guard-bash.mjs', { tool_name: 'Bash', tool_input: { command: ['git', 'push'] } }, 0, 'non-string command is stringified, no push to main'],
