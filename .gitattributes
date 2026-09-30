@@ -1,0 +1,5 @@
+# Normalize line endings: LF in the repository. Shell/Node scripts and hook scripts must stay LF.
+* text=auto eol=lf
+*.sh text eol=lf
+*.mjs text eol=lf
+*.min.js -diff

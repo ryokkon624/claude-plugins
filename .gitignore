@@ -1,0 +1,15 @@
+# generated review outputs (kept locally as history; not committed)
+output/
+
+# browser-check artifacts
+.playwright-mcp/
+
+# stray file created by a "/dev/null" redirect on Windows
+nul
+
+# local settings
+.claude/settings.local.json
+
+# OS / editor
+.DS_Store
+Thumbs.db

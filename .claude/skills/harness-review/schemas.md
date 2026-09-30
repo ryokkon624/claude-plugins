@@ -1,0 +1,327 @@
+# harness-review データ schema
+
+各ステージの入出力 JSON の形。subagent はこの形でファイルに書き、スクリプトはこの形を前提にマージ・検証・描画する。
+キーは英語、自由記述の値は日本語でよい。列挙値（kind / load / severity / verdict 等）は必ずここにある値を使う。
+
+```
+S0 discover   → work/discover.json            (script)
+S1 extract ①  → work/extract/<batch>.json     (LLM)  → merge → harness.json
+S2 extract ②  → work/flows/<batch>.json       (LLM)  → merge → flows.json
+S3 review ③   → work/review/<axis>.json       (LLM)
+S4 verify ③   → work/verify/<batch>.json      (LLM)  → merge → findings.json / verification.json
+S5 render     → report.html                   (script)
+```
+
+## 共通の参照 ID
+
+| 形 | 例 | 意味 |
+|---|---|---|
+| `claude-md:<path>` | `claude-md:CLAUDE.md` | CLAUDE.md 系（discover の `files[].id`） |
+| `rule:<name>` | `rule:git` | rule |
+| `skill:<name>` | `skill:developer-workflow` | skill |
+| `skill-support:<path>` | `skill-support:.claude/skills/x/templates/a.html` | skill 同梱ファイル |
+| `command:<name>` | `command:deploy` | command（旧配置） |
+| `agent:<name>` | `agent:security-verifier` | agent |
+| `hook:<source>:<event>:<i>.<j>` | `hook:settings.json:PreToolUse:0.0` | hook エントリ（discover の `hooks[].id`） |
+| `hook-script:<path>` | `hook-script:.claude/hooks/pre-commit.sh` | hook スクリプト |
+| `mcp:<name>` | `mcp:discord` | MCP サーバ |
+| `memory:<path>` | `memory:memory/dev/short_term.md` | memory（harness.json の `memory[].id`） |
+| `flow:<slug>` | `flow:developer-workflow` | フロー（flows.json の `flows[].id`） |
+| `flow:<slug>#<n>` | `flow:developer-workflow#3` | フローの step |
+
+位置の指定は `{ "file": "<相対パス>", "line": <行番号> }`。行番号は discover / Read で見た実際の行。
+
+## S0: work/discover.json（スクリプト生成、参照のみ）
+
+`schema: "harness-review/discover@1"`。主なもの:
+
+- `target`: `{ path, name, scanned_at, layouts: ["project"|"plugin"|"marketplace"], top_level: [], nested_claude_dirs: [] }`
+- `summary`: 件数、`by_load`、`always_loaded_tokens_est`、hints 数、`frontmatter_errors`
+- `files[]`: `{ id, kind, path, load, size:{bytes,lines,tokens_est}, sha256, frontmatter, frontmatter_error, frontmatter_stats, headings:[{level,text,line}], imports:[], hints:{spawn:[{line,kinds,in_code,text}], memory:[{line,direction,targets,memory_word,text}]}, instruction_lines, first_body_line, refs:{skills,agents,commands,harness_files}, preloaded_by?, preloads_skills?, context_at_spawn_tokens_est?, referenced?(hook-script), paths?(rule), exec?(skill) }`
+  - `kind`: `claude-md | rule | skill | skill-support | command | agent | settings | mcp-config | hooks-config | hook-script | workflow | plugin-manifest | marketplace-manifest | import`
+  - `load`: `always | path-scoped | on-demand | invoked | spawned | triggered | support | meta`
+- `hooks[]`: `{ id, source, event, matcher, type, command, prompt, url, timeout, if, once, async, script:{path,exists,outside_target,sha256,lines} }`
+- `permissions[]`, `settings[]`, `mcp_servers[]`
+- `memory_candidates[]`: `{ path, kind_hint, is_dir, file_count, detection: "structural"|"referential", mentioned_by:[{file,line,direction}] }`
+- `unknown_claude_files[]`, `notes[]`
+
+## S1: work/extract/<batch>.json（harness-extractor が書く）
+
+batch は種別ごと最大 10 ファイル（`claude-md-1`, `rules-1`, `skills-1`, `skills-2`, `agents-1`, …）。加えて memory 評価用の `memory-1` を 1 つ。
+
+```json
+{
+  "schema": "harness-review/extract@1",
+  "batch": "skills-1",
+  "files": [
+    {
+      "id": "skill:developer-workflow",
+      "summary": "DEV ロールの行動フロー。Planning → TDD 実装 → 完了報告 → レビュー対応の手順。",
+      "purpose": "procedure",
+      "content_mix": { "project_context": 0.0, "conventions": 0.2, "procedure": 0.7, "prohibitions": 0.1, "reference": 0.0, "template": 0.0 },
+      "opening": {
+        "states_role": true, "states_when": true, "states_output": false,
+        "note": "冒頭 3 行で DEV としての行動フローと参照タイミングは分かるが、成果物の形は本文後半まで出てこない"
+      },
+      "audience": ["agent:developer"],
+      "memory_ops": [
+        { "line": 52, "direction": "write", "target": "memory/dev/short_term.md", "trigger": "実装方針を決めた直後（ユーザー提示前）", "what": "実装方針" }
+      ],
+      "facts": [
+        "frontmatter の skills で agent:developer に注入される（discover.preloaded_by）",
+        "行 131-133 で backlog/sprint_XX/implementation-notes.md に仕様外の判断を記録するよう指示している"
+      ]
+    }
+  ],
+  "memory_assessment": [
+    {
+      "path": "memory/dev/short_term.md",
+      "is_memory": true,
+      "kind": "memory",
+      "description": "DEV ロールのスプリント内の作業状態。実装方針・レビュー指摘を保持する",
+      "lifecycle": "per-sprint",
+      "sample_read": true
+    }
+  ]
+}
+```
+
+- `purpose`: `project_context | conventions | procedure | prohibitions | reference | template | role-definition | config | mixed`
+- `content_mix`: 合計 1.0 の概算
+- `opening`: 冒頭（frontmatter の description ＋ 本文の最初の数行）だけを読んで判断する
+- `memory_ops[].direction`: `write | read | both`。`trigger` は「いつ」、`what` は「何を」
+- `facts`: 事実だけ。判断（良い / 悪い）は書かない
+- `memory_assessment` は `memory-1` batch だけが書く。`kind`: `memory | decision-record | backlog | reports | spec | log | template | artifact | not-memory`、`lifecycle`: `session | per-task | per-sprint | long-term | unknown`
+
+## harness.json（merge スクリプトが生成）
+
+`schema: "harness-review/harness@1"`。discover の内容に S1 の `summary / purpose / content_mix / opening / audience / memory_ops / facts` を各 file に合成し、memory を組み立てる。
+
+```json
+{
+  "schema": "harness-review/harness@1",
+  "target": { "...": "discover.target と同じ" },
+  "summary": {
+    "counts": {}, "by_load": {}, "always_loaded_tokens_est": 0,
+    "memory": { "has_custom_memory": true, "count": 6, "write_only": ["memory:..."], "read_only": [], "adr_like": [] }
+  },
+  "files": [ { "...": "discover.files[] ＋ S1 の各項目" } ],
+  "hooks": [], "permissions": [], "mcp_servers": [],
+  "memory": [
+    {
+      "id": "memory:memory/dev/short_term.md",
+      "path": "memory/dev/short_term.md",
+      "kind": "memory", "lifecycle": "per-sprint", "exists": true, "is_dir": false,
+      "description": "...",
+      "writers": [ { "file": "skill:developer-workflow", "line": 52, "trigger": "...", "what": "..." } ],
+      "readers": [ { "file": "skill:developer-workflow", "line": 98, "trigger": "...", "what": "..." } ]
+    }
+  ],
+  "coverage": { "discovered": 28, "extracted": 28, "missing": [] }
+}
+```
+
+## S2: work/flows/<batch>.json（flow-extractor が書く）
+
+batch は入口 5 件ずつ（`entries-1`, `entries-2`, …）、hooks 全部で `hooks-1`、CLAUDE.md ＋ 常駐 rules で `implicit-1`。
+
+```json
+{
+  "schema": "harness-review/flows@1",
+  "batch": "entries-1",
+  "flows": [
+    {
+      "id": "flow:developer-workflow",
+      "name": "Developer workflow",
+      "kind": "orchestrated",
+      "confidence": null,
+      "defined_in": [ { "file": ".claude/skills/developer-workflow/SKILL.md", "lines": "1-402" } ],
+      "entry": { "type": "model-invoked", "detail": "agent:developer に skills: で注入。DEV として動くとき" },
+      "orchestrator": { "context": "agent:developer", "note": "SM から SendMessage で指示を受けて動く" },
+      "steps": [
+        {
+          "n": 1, "actor": "agent:developer", "action": "memory/dev/short_term.md を読み実装方針を確認",
+          "inputs": ["memory:memory/dev/short_term.md"], "outputs": [],
+          "spawn": null,
+          "evidence": { "file": ".claude/skills/developer-workflow/SKILL.md", "line": 98 }
+        },
+        {
+          "n": 5, "actor": "agent:scrum-master", "action": "convention-reviewer を起動してレビュー",
+          "inputs": [], "outputs": ["backlog/sprint_XX/review-#N.html"],
+          "spawn": { "target": "agent:convention-reviewer", "timing": "sequential", "condition": null, "max_iterations": null, "model": "sonnet", "tools": null, "isolation": null },
+          "evidence": { "file": ".claude/skills/scrum-master-workflow/SKILL.md", "line": 210 }
+        }
+      ],
+      "participants": [ { "ref": "agent:developer", "role": "実装", "defined": true } ],
+      "artifacts": [ { "type": "memory-write", "target": "memory:memory/dev/short_term.md", "step": 3 } ],
+      "review_points": [
+        {
+          "step": 5, "reviewer": "agent:convention-reviewer", "reviewee": "agent:developer",
+          "subject": "実装差分の規約適合", "criteria": "backend-conventions / frontend-conventions",
+          "separate_context": true, "on_fail": "DEV に差し戻し（回数上限の記述なし）", "max_iterations": null,
+          "evidence": { "file": "...", "line": 210 }
+        }
+      ],
+      "judgment_points": [
+        {
+          "step": 2, "description": "AC や仕様書にない判断・変更・妥協点",
+          "logging_instructed": true, "log_target": "backlog/sprint_XX/implementation-notes.md",
+          "evidence": { "file": ".claude/skills/developer-workflow/SKILL.md", "line": 133 }
+        }
+      ],
+      "calls": [ { "flow": "flow:sprint-review-prep", "step": 7 } ],
+      "termination": "SM に SendMessage で完了報告",
+      "mermaid": "sequenceDiagram\n  participant SM as agent:scrum-master\n  participant DEV as agent:developer\n  ..."
+    }
+  ],
+  "not_flows": [ { "entry": "skill:backend-conventions", "reason": "規約の参照資料。手順を含まない" } ],
+  "hint_attribution": [
+    { "file": "skill:developer-workflow", "line": 52, "status": "attributed", "flow": "flow:developer-workflow", "step": 3 },
+    { "file": "skill:backend-conventions", "line": 759, "status": "noise", "reason": "Java 設計の散文" }
+  ]
+}
+```
+
+- `kind`: `single | orchestrated | workflow | team | hook-chain | implicit`
+- `confidence`（implicit のみ）: `explicit-procedure | procedure-like`
+- `entry.type`: `user-invoked | model-invoked | hook | called-by-flow | prose`
+- `orchestrator.context`: `main-session | forked-skill | workflow-runtime | agent:<name> | hook`
+- `steps[].actor`: `main | agent:<name> | teammate:<name> | script:<path> | hook:<id> | human`
+- `spawn.target`: `agent:<name> | teammate:<name> | workflow:<name> | claude-cli | unknown`
+- `spawn.timing`: `sequential | parallel | background | conditional | loop`
+- `artifacts[].type`: `file | memory-write | commit | pr | external-message | report | none`
+- `review_points[].separate_context`: `true | false | "unknown"`。`criteria` / `on_fail` に記述がなければ `"none stated"`
+- `hint_attribution[].status`: `attributed | noise | unclassified`
+- `mermaid`: `sequenceDiagram` のソース。参加者は actor、spawn は `->>`、返却は `-->>`、並列は `par`、ループは `loop`
+
+## flows.json（merge スクリプトが生成）
+
+`schema: "harness-review/flows@1"`。batch を結合し、`calls[].flow` を解決（見つからなければ `unresolved:<name>`）、フロー間グラフ `graph: [{from, to, step}]` を作り、hint の帰属を集計する。
+
+```json
+{
+  "summary": { "total": 9, "by_kind": {}, "with_review_points": 4, "with_judgment_points": 2, "entries_without_flow": [] },
+  "flows": [], "not_flows": [], "graph": [],
+  "hint_attribution": { "attributed": 60, "noise": 8, "unclassified": 3, "items": [] }
+}
+```
+
+## S3: work/review/<axis>.json（harness-reviewer が書く）
+
+axis は `A | B | C | D | E`。各軸の check ID（`A1`, `A2`, …）は `references/<axis>-*.md` で定義する。
+
+```json
+{
+  "schema": "harness-review/review@1",
+  "axis": "A",
+  "reference": "references/A-placement.md",
+  "findings": [
+    {
+      "axis": "A",
+      "check": "A6",
+      "severity": "must",
+      "basis": "official",
+      "target": { "type": "hook", "id": "hook:settings.json:PreToolUse:0.0", "line": null },
+      "evidence": [
+        { "file": ".claude/settings.json", "line": 7, "quote": "\"command\": \"bash C:/work/claude/scrum-agent-base/.claude/hooks/pre-commit.sh\"" },
+        { "file": ".claude/hooks/pre-commit.sh", "line": 1, "quote": "（どこからも参照されていない。53 行 vs 48 行、hash 不一致）" }
+      ],
+      "claim": "PreToolUse hook が別プロジェクトのスクリプトを実行しており、ローカルの pre-commit.sh は孤立している",
+      "proposal": {
+        "summary": "command を $CLAUDE_PROJECT_DIR/.claude/hooks/pre-commit.sh に変え、内容を統一する",
+        "change": "settings.json:\n  \"command\": \"bash \\\"$CLAUDE_PROJECT_DIR/.claude/hooks/pre-commit.sh\\\"\""
+      }
+    }
+  ],
+  "passes": [ { "target": { "type": "file", "id": "rule:database" }, "check": "A3", "note": "paths が指定され、内容もその範囲に限定されている" } ],
+  "na": [ { "target": { "type": "file", "id": "skill-support:..." }, "check": "A1", "reason": "HTML テンプレートには適用しない" } ]
+}
+```
+
+- `severity`: `must | should | nice to have`
+- `basis`: `official | custom`
+- `target.type`: `file | flow | step | hook | memory | mcp | harness`（`harness` は対象全体への指摘。例: ADR がない）
+- `evidence[]` は実ファイルを Read して引用する。要約からの推測で書かない。`quote` は 200 文字以内
+- `proposal.change` は書き換え後のテキスト、追加する step、移動先。「検討する」で終わらせない
+- `id` は書かない（merge が `hash(axis + target.id + claim 正規化)` で付ける）
+- 対象 × check のすべてのセルを `findings / passes / na` のいずれかで埋める
+
+## S4: work/verify/<batch>.json（finding-verifier が書く）
+
+batch は対象ファイルごとにまとめて 8 件程度（`verify-1`, `verify-2`, …）。
+
+```json
+{
+  "schema": "harness-review/verify@1",
+  "batch": "verify-1",
+  "results": [
+    {
+      "finding_id": "A6-3f9c2e",
+      "verdict": "CONFIRMED",
+      "evidence_check": "ok",
+      "claim_check": "holds",
+      "proposal_check": "consistent",
+      "note": "settings.json 7 行目で確認。ローカルの pre-commit.sh は他に参照なし"
+    }
+  ]
+}
+```
+
+- `verdict`: `CONFIRMED`（evidence 実在・claim 成立・proposal 整合）/ `PLAUSIBLE`（claim は成立しそうだが決め手を欠く、または proposal に懸念）/ `REJECTED`（evidence が実在しない、引用が違う、claim が成立しない）
+- `evidence_check`: `ok | mismatch | missing`
+- `claim_check`: `holds | doubtful | fails`
+- `proposal_check`: `consistent | concern | conflicts`
+
+## findings.json（merge スクリプトが生成）
+
+```json
+{
+  "schema": "harness-review/findings@1",
+  "summary": {
+    "by_severity": { "must": 3, "should": 7, "nice to have": 4 },
+    "by_axis": { "A": 5, "B": 4, "C": 3, "D": 1, "E": 1 },
+    "by_verdict": { "CONFIRMED": 11, "PLAUSIBLE": 3 },
+    "vs_previous": { "previous_run": "2026-09-24-1530", "resolved": 2, "new": 4, "continued": 10 }
+  },
+  "findings": [ { "id": "A6-3f9c2e", "...": "S3 の finding ＋ verification: { verdict, note } ＋ status: new|continued" } ],
+  "matrix": {
+    "checks": [ { "id": "A1", "axis": "A", "title": "..." } ],
+    "targets": [ { "id": "skill:developer-workflow", "type": "file" } ],
+    "cells": [ { "target": "skill:developer-workflow", "check": "A1", "status": "pass", "finding_ids": [] } ]
+  }
+}
+```
+
+`findings[].id` の形は `<check>-<hash6>`。`status` は前回 run との突き合わせ結果（前回がなければ `new`）。REJECTED はここに入れない。
+
+## verification.json（merge スクリプトが生成）
+
+```json
+{
+  "schema": "harness-review/verification@1",
+  "stage1": { "discovered": 28, "extracted": 28, "missing": [], "retried": [] },
+  "stage2": { "hints": 71, "attributed": 60, "noise": 8, "unclassified": [ { "file": "...", "line": 0, "text": "..." } ], "entries_without_flow": [] },
+  "stage4": { "total": 16, "confirmed": 11, "plausible": 3, "rejected": [ { "finding": {}, "note": "..." } ] }
+}
+```
+
+## run.json（オーケストレータ / スクリプトが更新）
+
+```json
+{
+  "schema": "harness-review/run@1",
+  "target": { "path": "...", "name": "..." },
+  "run_id": "2026-09-25-1030",
+  "started_at": "...", "finished_at": null,
+  "options": { "from": null, "skip_verify": false },
+  "stages": {
+    "S0": { "status": "done", "started_at": "...", "finished_at": "..." },
+    "S1": { "status": "done", "batches": 5, "agents": 5, "model": "sonnet" },
+    "S2": { "status": "running", "batches": 4 },
+    "S3": {}, "S4": {}, "S5": {}
+  },
+  "previous_run": "2026-09-24-1530"
+}
+```
+
+`status`: `pending | running | done | failed | skipped`。
