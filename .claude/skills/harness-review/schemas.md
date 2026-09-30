@@ -7,7 +7,7 @@
 S0 discover   → work/discover.json            (script)
 S1 extract ①  → work/extract/<batch>.json     (LLM)  → merge → harness.json
 S2 extract ②  → work/flows/<batch>.json       (LLM)  → merge → flows.json
-S3 review ③   → work/review/<axis>.json       (LLM)
+S3 review ③   → work/review/<axis>.json       (LLM)  → merge → work/review/all.json + validation.json
 S4 verify ③   → work/verify/<batch>.json      (LLM)  → merge → findings.json / verification.json
 S5 render     → report.html                   (script)
 ```
@@ -245,6 +245,27 @@ axis は `A | B | C | D | E`。各軸の check ID（`A1`, `A2`, …）は `refer
 - `proposal.change` は書き換え後のテキスト、追加する step、移動先。「検討する」で終わらせない
 - `id` は書かない（merge が `hash(axis + target.id + claim 正規化)` で付ける）
 - 対象 × check のすべてのセルを `findings / passes / na` のいずれかで埋める
+
+## work/review/validation.json（merge S3 が生成）
+
+merge S3 は S3 出力を機械的に検査し、形式不備の finding を `all.json` から除外してここに記録する。検査項目：check id が `references/` の一覧に実在し、そのファイルの軸に属すること／severity と basis が列挙値であること／`target.id`（`harness` 型を除く）・`evidence[]`（各要素に `file` と `quote`）・`claim`・`proposal.summary` があること。pass / na は check id だけを検査する。
+
+```json
+{
+  "schema": "harness-review/review-validation@1",
+  "merges": 1,
+  "invalid_findings": [ { "axis": "A", "check": "A99", "target": { "type": "file", "id": "x" }, "claim": "...", "reasons": [ "unknown check id: A99" ] } ],
+  "invalid_passes": 0,
+  "invalid_na": 0,
+  "warnings": [ "axis A: valid findings decreased from 6 to 4 after retry (see .../A.attempt1.json)" ]
+}
+```
+
+- `merges`: merge S3 を実行した回数。不備があっても 2 回目以降は S3 を完了扱いにする（再試行は 1 回）
+- 不備のあった軸の `<axis>.json` は、初回 merge 時に `<axis>.attempt1.json`（`valid_findings` を付与）としてスナップショットされる。再試行後に有効な finding が減っていれば `warnings` に出る
+- ファイルの軸が正。finding / pass / na に書かれた `axis` は無視される
+
+`verification.json` の `stage3` にはこの内容（`invalid_findings` / `invalid_passes` / `invalid_na` / `warnings`）と `unchecked_cells` が入る。`run.json` の `S3` には `merges` と `invalid_findings`（件数）が入る。
 
 ## S4: work/verify/<batch>.json（finding-verifier が書く）
 

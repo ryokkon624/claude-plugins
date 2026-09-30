@@ -90,6 +90,10 @@ node "$SKILL/scripts/run.mjs" plan "<run_dir>" S2
 
 ### S3: レビュー
 
+```
+node "$SKILL/scripts/run.mjs" stage "<run_dir>" S3 running batches=5
+```
+
 軸 A〜E の 5 つの `harness-reviewer` を**同時に**起動する。プロンプト：
 
 ```
@@ -104,7 +108,19 @@ harness-review S3 のレビューを担当してください。
 手順と制約はあなたの定義に従ってください。報告は 1 行だけ。
 ```
 
-全報告後：`merge "<run_dir>" S3`。exit 3 なら `missing_axes` の軸だけもう 1 度起動して再 merge。ユーザーに 1 行：finding 数と severity 内訳。
+全報告後：`merge "<run_dir>" S3`。merge は S3 出力を機械的に検査する（check id が基準文書に実在し担当軸のものか、severity / basis が列挙値か、evidence（file ＋ quote）・claim・proposal.summary があるか）。形式不備の finding は `all.json` から除外され、理由つきの一覧が `work/review/validation.json` に書かれる。stdout に出るのは件数・軸・そのパスだけ（一覧を自分で読まない）。
+
+- exit 3 で `missing_axes` があれば、その軸だけもう 1 度起動して再 merge
+- exit 3 で `invalid.retry: true` なら、`invalid.axes` の軸だけもう 1 度起動する。プロンプトに次を足す：
+
+  ```
+  再試行です。まず <output> を Read し、その内容をベースにする。次に <validation> を Read し、`invalid_findings` のうち axis が <axis> のものについて、reasons に従って該当 finding を直す。
+  直した finding と、既存の他の finding / pass / na をすべて含めて <output> を書き直すこと（件数を減らさない）。
+  ```
+
+  merge は 2 回目以降は不備が残っても S3 を完了扱いにする（除外されたまま検証ログに出る）。再試行で finding が減った軸は stdout の `warnings` に出るので、最終報告に含める
+
+ユーザーに 1 行：finding 数と severity 内訳、除外した finding があればその数。
 
 ### S4: 敵対的検証
 
@@ -154,5 +170,5 @@ node "$SKILL/scripts/run.mjs" summary "<run_dir>"
 1. report.html と latest.html のパス
 2. ①②③の件数（summary のまま）
 3. must の finding 一覧（id、対象、claim）。should は件数と代表 3 件
-4. 検証で落ちた finding の数、未分類の手がかり数、欠落があればその id
+4. 検証で落ちた finding の数、形式不備で除外した finding の数（`summary` の `excluded`）と警告、未分類の手がかり数、欠落があればその id
 5. **自己判断**：フォールバックを使った、再試行した、欠落を残したまま進めた、など、指示にない判断で対応したこと。無ければ「自己判断: なし」

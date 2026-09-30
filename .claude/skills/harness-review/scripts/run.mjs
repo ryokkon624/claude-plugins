@@ -7,7 +7,7 @@
 //   node run.mjs status <run-dir>                                                → prints run.json
 //   node run.mjs stage  <run-dir> <stage> <status> [key=value ...]              → updates run.json stage record
 //
-// Exit codes: 0 ok, 1 error, 3 coverage gap (merge S1/S2: something is missing; see printed JSON)
+// Exit codes: 0 ok, 1 error, 3 coverage gap (merge S1..S4: something is missing or invalid; see printed JSON)
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -24,6 +24,8 @@ const AXES = ['A', 'B', 'C', 'D', 'E'];
 const LLM_KINDS = new Set(['claude-md', 'import', 'rule', 'skill', 'skill-support', 'command', 'agent', 'hook-script', 'workflow']);
 const ENTRY_KINDS = new Set(['skill', 'command', 'agent', 'workflow']);
 const S1_BATCH = 10, S2_BATCH = 5, S4_BATCH = 8;
+const SEVERITY_ORDER = { must: 0, should: 1, 'nice to have': 2 };
+const BASES = new Set(['official', 'custom']);
 
 // ---------------------------------------------------------------- helpers
 
@@ -83,7 +85,7 @@ function cmdInit(args) {
     runDir = path.join(targetDir, id);
     ({ run } = loadRun(runDir));
     const idx = STAGES.indexOf(from);
-    for (const s of STAGES.slice(idx)) setStage(run, s, { status: 'pending' });
+    for (const s of STAGES.slice(idx)) run.stages[s] = { status: 'pending' };
     run.options = { ...run.options, from, skip_verify: skipVerify || run.options?.skip_verify || false };
     run.finished_at = null;
     run.resumed_at = now();
@@ -326,6 +328,8 @@ function findingId(f) { return `${f.check ?? f.axis}-${sha(`${f.axis}|${f.target
 
 function mergeS3(runDir, run, runPath) {
   const dir = path.join(runDir, 'work', 'review');
+  const checks = loadChecks();
+  const checkAxis = new Map(checks.map((c) => [c.id, c.axis]));
   let findings = [], passes = [], na = [];
   const axesDone = [];
   for (const ax of AXES) {
@@ -333,10 +337,55 @@ function mergeS3(runDir, run, runPath) {
     if (!exists(p)) continue;
     const b = readJson(p);
     axesDone.push(ax);
-    findings = findings.concat((b.findings ?? []).map((f) => ({ ...f, axis: f.axis ?? ax })));
+    // the file's axis is authoritative; a reviewer-written axis is ignored for findings, passes and na alike
+    findings = findings.concat((b.findings ?? []).map((f) => ({ ...f, axis: ax })));
     passes = passes.concat((b.passes ?? []).map((x) => ({ ...x, axis: ax })));
     na = na.concat((b.na ?? []).map((x) => ({ ...x, axis: ax })));
   }
+
+  // Deterministic validation of S3 output (C7): what the reviewer prompt asks for in prose is checked here.
+  const invalid = [];
+  const validateFinding = (f) => {
+    const reasons = [];
+    if (!f.check || !checkAxis.has(f.check)) reasons.push(`unknown check id: ${f.check ?? '(none)'}`);
+    else if (checkAxis.get(f.check) !== f.axis) reasons.push(`check ${f.check} does not belong to axis ${f.axis}`);
+    if (!(f.severity in SEVERITY_ORDER)) reasons.push(`invalid severity: ${f.severity ?? '(none)'}`);
+    if (!BASES.has(f.basis)) reasons.push(`invalid basis: ${f.basis ?? '(none)'}`);
+    if (!f.target || (!f.target.id && f.target.type !== 'harness')) reasons.push('target.id missing');
+    if (!Array.isArray(f.evidence) || !f.evidence.length) reasons.push('evidence missing');
+    else if (!f.evidence.every((e) => e && e.file && e.quote)) reasons.push('every evidence needs file and quote');
+    if (!f.claim || !String(f.claim).trim()) reasons.push('claim missing');
+    if (!f.proposal || !f.proposal.summary || !String(f.proposal.summary).trim()) reasons.push('proposal.summary missing');
+    return reasons;
+  };
+  findings = findings.filter((f) => {
+    const reasons = validateFinding(f);
+    if (reasons.length) { invalid.push({ axis: f.axis, check: f.check ?? null, target: f.target ?? null, claim: f.claim ?? null, reasons }); return false; }
+    return true;
+  });
+  const badCheck = (x) => !x.check || checkAxis.get(x.check) !== x.axis;
+  const invalidPasses = passes.filter(badCheck).length, invalidNa = na.filter(badCheck).length;
+  passes = passes.filter((x) => !badCheck(x));
+  na = na.filter((x) => !badCheck(x));
+
+  // Retry bookkeeping: snapshot an axis file the first time it has invalid findings, and warn if a rewrite lost findings.
+  const merges = (run.stages.S3?.merges ?? 0) + 1;
+  const invalidAxes = [...new Set(invalid.map((i) => i.axis))];
+  const warnings = [];
+  for (const ax of axesDone) {
+    const snap = path.join(dir, `${ax}.attempt1.json`);
+    const validCount = findings.filter((f) => f.axis === ax).length;
+    if (exists(snap)) {
+      const prev = readJson(snap).valid_findings ?? 0;
+      if (validCount < prev) warnings.push(`axis ${ax}: valid findings decreased from ${prev} to ${validCount} after retry (see ${posix(snap)})`);
+    } else if (invalidAxes.includes(ax)) {
+      fs.copyFileSync(path.join(dir, `${ax}.json`), snap);
+      const s = readJson(snap); s.valid_findings = validCount; writeJson(snap, s);
+    }
+  }
+  const validationPath = path.join(dir, 'validation.json');
+  writeJson(validationPath, { schema: 'harness-review/review-validation@1', merges, invalid_findings: invalid, invalid_passes: invalidPasses, invalid_na: invalidNa, warnings });
+
   const seen = new Set();
   for (const f of findings) { let id = findingId(f); let n = 2; while (seen.has(id)) id = `${findingId(f)}-${n++}`; seen.add(id); f.id = id; }
   const all = { schema: 'harness-review/review-all@1', axes: axesDone, findings, passes, na };
@@ -344,10 +393,12 @@ function mergeS3(runDir, run, runPath) {
   const missingAxes = AXES.filter((a) => !axesDone.includes(a));
   const bySev = {};
   for (const f of findings) bySev[f.severity] = (bySev[f.severity] ?? 0) + 1;
-  setStage(run, 'S3', { status: missingAxes.length ? 'running' : 'done', finished_at: missingAxes.length ? null : now(), findings: findings.length, passes: passes.length, na: na.length, axes: axesDone });
+  // One retry for invalid findings: after the second merge, remaining invalid ones stay excluded and S3 completes.
+  const gap = missingAxes.length > 0 || (invalid.length > 0 && merges < 2);
+  setStage(run, 'S3', { status: gap ? 'running' : 'done', finished_at: gap ? null : now(), merges, findings: findings.length, passes: passes.length, na: na.length, axes: axesDone, invalid_findings: invalid.length });
   saveRun(runPath, run);
-  out({ stage: 'S3', all: posix(path.join(dir, 'all.json')), axes: axesDone, missing_axes: missingAxes, findings: findings.length, by_severity: bySev, passes: passes.length, na: na.length });
-  if (missingAxes.length) process.exit(3);
+  out({ stage: 'S3', all: posix(path.join(dir, 'all.json')), axes: axesDone, missing_axes: missingAxes, findings: findings.length, by_severity: bySev, passes: passes.length, na: na.length, merges, invalid: { findings: invalid.length, axes: invalidAxes, passes: invalidPasses, na: invalidNa, retry: gap && invalid.length > 0 }, warnings, validation: posix(validationPath) });
+  if (gap) process.exit(3);
 }
 
 // ---------------------------------------------------------------- merge S4 (findings.json / verification.json)
@@ -409,8 +460,7 @@ function mergeS4(runDir, run, runPath) {
     const status = fs_.length ? 'finding' : ps ? 'pass' : nn ? 'na' : rj ? 'rejected-only' : 'unchecked';
     cells.push({ target: t, check: c.id, axis: c.axis, status, finding_ids: fs_ });
   }
-  const sevOrder = { must: 0, should: 1, 'nice to have': 2 };
-  kept.sort((a, b) => (sevOrder[a.severity] ?? 9) - (sevOrder[b.severity] ?? 9) || a.axis.localeCompare(b.axis) || a.id.localeCompare(b.id));
+  kept.sort((a, b) => (SEVERITY_ORDER[a.severity] ?? 9) - (SEVERITY_ORDER[b.severity] ?? 9) || a.axis.localeCompare(b.axis) || a.id.localeCompare(b.id));
   const count = (arr, k) => arr.reduce((m, x) => { m[x[k]] = (m[x[k]] ?? 0) + 1; return m; }, {});
   const findings = {
     schema: 'harness-review/findings@1',
@@ -426,11 +476,12 @@ function mergeS4(runDir, run, runPath) {
   writeJson(path.join(runDir, 'findings.json'), findings);
   const s1 = exists(path.join(runDir, 'work', 'coverage-S1.json')) ? readJson(path.join(runDir, 'work', 'coverage-S1.json')) : null;
   const s2 = exists(path.join(runDir, 'work', 'coverage-S2.json')) ? readJson(path.join(runDir, 'work', 'coverage-S2.json')) : null;
+  const s3v = exists(path.join(runDir, 'work', 'review', 'validation.json')) ? readJson(path.join(runDir, 'work', 'review', 'validation.json')) : null;
   const verification = {
     schema: 'harness-review/verification@1',
     stage1: s1 ? { discovered: s1.discovered, extracted: s1.extracted, missing: s1.missing } : null,
     stage2: s2 ? { hints: s2.hints, attributed: s2.attributed, noise: s2.noise, unclassified: s2.unclassified, entries_without_flow: s2.entries_without_flow } : null,
-    stage3: { axes: all.axes, unchecked_cells: cells.filter((c) => c.status === 'unchecked').length },
+    stage3: { axes: all.axes, unchecked_cells: cells.filter((c) => c.status === 'unchecked').length, invalid_findings: s3v?.invalid_findings ?? [], invalid_passes: s3v?.invalid_passes ?? 0, invalid_na: s3v?.invalid_na ?? 0, warnings: s3v?.warnings ?? [] },
     stage4: { skipped: !!skip, total: all.findings.length, confirmed: kept.filter((f) => f.verification.verdict === 'CONFIRMED').length, plausible: kept.filter((f) => f.verification.verdict === 'PLAUSIBLE').length, unverified: unverified.length, rejected },
   };
   writeJson(path.join(runDir, 'verification.json'), verification);
@@ -487,7 +538,7 @@ function cmdSummary(args) {
   if (fd) {
     const s = fd.summary;
     lines.push(`③: findings ${fd.findings.length} (must ${s.by_severity.must ?? 0} / should ${s.by_severity.should ?? 0} / nice to have ${s.by_severity['nice to have'] ?? 0}), verdict ${Object.entries(s.by_verdict).map(([k, n]) => `${k} ${n}`).join(', ')}, vs previous: ${s.vs_previous.previous_run ? `resolved ${s.vs_previous.resolved} / new ${s.vs_previous.new} / continued ${s.vs_previous.continued}` : 'first run'}`);
-    if (v?.stage4) lines.push(`④: rejected ${v.stage4.rejected.length}, unverified ${v.stage4.unverified}${v.stage4.skipped ? ' (skipped)' : ''}; ③ unchecked cells ${v.stage3?.unchecked_cells ?? '-'}`);
+    if (v?.stage4) lines.push(`④: rejected ${v.stage4.rejected.length}, unverified ${v.stage4.unverified}${v.stage4.skipped ? ' (skipped)' : ''}; ③ unchecked cells ${v.stage3?.unchecked_cells ?? '-'}, excluded (invalid format) ${v.stage3?.invalid_findings?.length ?? 0}${v.stage3?.warnings?.length ? ', warnings: ' + v.stage3.warnings.join('; ') : ''}`);
     for (const sev of ['must', 'should']) {
       const list = fd.findings.filter((f) => f.severity === sev);
       if (!list.length) continue;
