@@ -11,7 +11,7 @@
 
 | 種別 | 用途 | 例 |
 |---|---|---|
-| `feature/` | 機能の追加・大きめの改修 | `feature/ADR-0014-judgment-notes` |
+| `feature/` | 機能の追加・大きめの改修 | `feature/ADR-0099-judgment-notes` |
 | `fix/` | 不具合・指摘への対応 | `fix/A4-write-guard-hook` |
 | `refactor/` | 挙動を変えないコード改善 | `refactor/run-mjs-split` |
 | `docs/` | 文書のみの変更 | `docs/git-rules` |
@@ -50,6 +50,7 @@ refactor: render.mjs のセクション生成を関数に分割
 ## コミット前の必須作業
 
 - 変更した `.mjs` は `node --check <file>` で構文を確認する
+- `.claude/hooks/` を変更したら `node .claude/hooks/guard.test.mjs` を実行して全件 PASS を確認する
 - `references/` の公式節を変更したら、その文書の取得日を更新する
 - 設計判断を伴う変更は、コードより先に `docs/adr/` に ADR を追加する（CLAUDE.md）
 

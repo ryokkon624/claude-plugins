@@ -74,6 +74,10 @@ S5 render     script          → report.html / latest.html
 - subagent は結果を `work/` に書き、オーケストレータにはデータを返さない
 - HTML は人間用。機械は JSON を使う
 
+## 書き込み gate（hooks）
+
+`.claude/settings.json` の PreToolUse hook が、レビュー対象（このリポジトリの外）への Write / Edit / Bash 書き込みと、`main` への直接 push を機械的にブロックする（ADR-0014）。許可されるのは このリポジトリ、`~/.claude/projects/`（auto memory）、scratchpad と一時ディレクトリだけ。guard 自身（`.claude/settings.json`、`.claude/hooks/`）も保護されているので、変更するときは `CLAUDE_PLUGINS_GUARD_OFF=1` を付けて Claude を起動する。テストは `node .claude/hooks/guard.test.mjs`。
+
 ## 基準のカスタマイズ
 
 判断基準は `.claude/skills/harness-review/references/<axis>.md` にある。各文書は「公式（出典 URL・取得日つき）」と「独自」の 2 節から成る。基準を変えたいときはこの文書を編集する。
