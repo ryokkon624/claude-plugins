@@ -307,7 +307,8 @@ function verificationSection(v, findings, run) {
   if (!v) return `<section id="verification"><h2>検証ログ</h2><p class="empty">verification.json がありません。</p></section>`;
   const s1 = v.stage1 ? `<li>①: 発見 ${v.stage1.discovered} ／ 抽出 ${v.stage1.extracted}${v.stage1.missing?.length ? ` ／ <span class="badge err">欠落 ${v.stage1.missing.length}: ${esc(v.stage1.missing.join(', '))}</span>` : ' ／ 欠落なし'}</li>` : '';
   const s2 = v.stage2 ? `<li>②: 手がかり ${v.stage2.hints} ／ 帰属 ${v.stage2.attributed} ／ noise ${v.stage2.noise} ／ 未分類 ${v.stage2.unclassified?.length ?? 0}${v.stage2.entries_without_flow?.length ? ` ／ <span class="badge warn">フロー未抽出の入口: ${esc(v.stage2.entries_without_flow.join(', '))}</span>` : ''}</li>` : '';
-  const s3 = v.stage3 ? `<li>③: 軸 ${esc((v.stage3.axes ?? []).join(''))} ／ 未チェックのセル ${v.stage3.unchecked_cells}</li>` : '';
+  const s3 = v.stage3 ? `<li>③: 軸 ${esc((v.stage3.axes ?? []).join(''))} ／ 未チェックのセル ${v.stage3.unchecked_cells}${v.stage3.invalid_findings?.length ? ` ／ <span class="badge err">形式不備で除外した finding ${v.stage3.invalid_findings.length}</span>` : ''}${v.stage3.invalid_passes || v.stage3.invalid_na ? ` ／ 不正な check id の pass/na ${(v.stage3.invalid_passes ?? 0) + (v.stage3.invalid_na ?? 0)}` : ''}</li>` : '';
+  const inv = v.stage3?.invalid_findings?.length ? `<details open><summary>形式不備で除外した finding（${v.stage3.invalid_findings.length}）</summary><ul>${v.stage3.invalid_findings.map((i) => `<li><span class="pill axis">${esc(i.axis)}</span> <code>${esc(i.check ?? '-')}</code> ${esc(i.target?.id ?? '')} — ${esc(String(i.claim ?? '').slice(0, 160))}<div class="s">${esc(i.reasons.join(' / '))}</div></li>`).join('')}</ul></details>` : '';
   const s4 = v.stage4 ? `<li>④: ${v.stage4.skipped ? '<span class="badge warn">スキップ</span>' : `finding ${v.stage4.total} ／ CONFIRMED ${v.stage4.confirmed} ／ PLAUSIBLE ${v.stage4.plausible} ／ REJECTED ${v.stage4.rejected?.length ?? 0}${v.stage4.unverified ? ` ／ <span class="badge warn">未検証 ${v.stage4.unverified}</span>` : ''}`}</li>` : '';
   const uncl = v.stage2?.unclassified?.length ? `<details><summary>未分類の spawn 手がかり（${v.stage2.unclassified.length}）</summary><ul>${v.stage2.unclassified.map((u) => `<li><code>${esc(u.path ?? u.file)}</code>:${u.line} — ${esc(u.text)}</li>`).join('')}</ul></details>` : '';
   const rej = v.stage4?.rejected?.length ? `<details open><summary>REJECTED された finding（${v.stage4.rejected.length}）</summary>${v.stage4.rejected.map((r) => `<article class="finding rejected"><header><span class="pill ${sevClass(r.finding.severity)}">${esc(r.finding.severity)}</span> <span class="pill axis">${esc(r.finding.axis)}</span> <span class="pill check">${esc(r.finding.check)}</span> <code class="fid">${esc(r.finding.id)}</code></header><div class="claim">${esc(r.finding.claim)}</div><div class="block verify"><div class="bl">却下理由</div>${esc(r.note ?? '')}<div class="s">evidence ${esc(r.evidence_check)} · claim ${esc(r.claim_check)} · proposal ${esc(r.proposal_check)}</div></div></article>`).join('')}</details>` : '';
@@ -317,6 +318,7 @@ function verificationSection(v, findings, run) {
 <p>${stages}</p>
 <ul>${s1}${s2}${s3}${s4}</ul>
 ${uncl}
+${inv}
 ${rej}
 </section>`;
 }
