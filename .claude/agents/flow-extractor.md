@@ -33,8 +33,9 @@ model: inherit
 6. `kind` が `implicit` の batch（CLAUDE.md ＋ 常駐 rules）では、散文の中から**手順らしき記述**（「〜したら〜する」「〜の前に〜」「〜の順で」）を切り出し、1 まとまりごとに `kind: "implicit"` のフローにする。`confidence` は、ステップが明示的に列挙されていれば `explicit-procedure`、文脈から手順と読めるだけなら `procedure-like`
 7. `kind` が `hooks` の batch では、hook ごとに `kind: "hook-chain"` のフローを作る。entry は hook イベント、steps はスクリプトが何をするか（スクリプトを Read する）、`on_fail` は exit code の扱い
 8. **hint の帰属**：`entries[].hints.spawn` の各項目について `hint_attribution[]` を書く。フローの step に対応すれば `attributed`（`flow` と `step`）、spawn とは無関係な文（Java 設計の散文、説明文）なら `noise`（`reason`）、判断できなければ `unclassified`
-9. `output` に JSON を Write する。`schema` は `"harness-review/flows@1"`
-10. 報告は 1 行だけ：`wrote <output>: <n> flows, <m> not_flows, hints attributed/noise/unclassified = a/b/c` または `FAILED: <理由>`
+9. **`judgment_notes`（batch 全体で 1 つの配列、必須）**：あなたが裁量で決めたことを記録する（ADR-0015）。トリガー：implicit フローの `confidence` を決めた／手がかりを `noise` にした・入口を `not_flows` にした（分類自体はスクリプトが列挙するので、**迷った理由**を書く）／step の境界やフローの分割を自分で引いた／`review_points` や `judgment_points` に入れるか迷った。1 件ごとに `target`（対象の id。入口なら `skill:x`、フローなら `flow:x`、step なら `flow:x#3`）、`kind`（`implicit_confidence | noise | not_flow | step_boundary | review_point | judgment_point | other`）、`note`（何を・なぜ）、任意で `alternative`。対象の評価ではなく、あなた自身の選択の記録。**無ければ `[]` を必ず書く**（キーが無いと「未記録」として警告される）
+10. `output` に JSON を Write する。`schema` は `"harness-review/flows@1"`
+11. 報告は 1 行だけ：`wrote <output>: <n> flows, <m> not_flows, hints attributed/noise/unclassified = a/b/c, <j> judgment_notes` または `FAILED: <理由>`
 
 ## 制約
 

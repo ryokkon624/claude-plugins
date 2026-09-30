@@ -27,9 +27,10 @@ model: sonnet
    - `audience`: このファイルを読むのは誰か（`agent:<name>`、`main`、`human`）。input の `preloaded_by` / `refs` を手がかりにする
    - `memory_ops`: input の `hints.memory` を出発点に、実ファイルを読んで **いつ（trigger）・何を（what）・どこに（target）・書くのか読むのか（direction）** を確定する。hint が誤検出なら含めない。hint にない記録指示を見つけたら足す
    - `facts`: 判断を含まない事実。例：「行 131-133 で仕様外の判断を implementation-notes.md に記録するよう指示している」「注入先の skill `mobile-conventions` は存在しない（input の `preloads_skills[].resolved`）」
+   - **`judgment_notes`（batch 全体で 1 つの配列、必須）**：あなたが裁量で決めたことを記録する（ADR-0015）。トリガー：input の hint を誤検出として除外した（除外自体はスクリプトが列挙するので、**なぜ除外したか**を書く）／`purpose` や `content_mix` の配分に迷って決めた／`opening` の判定が微妙だった／`audience` を推測した／`is_memory` や `kind` を運用の推測で決めた。1 件ごとに `target`（対象の id。file なら `skill:x`、memory 候補なら `memory:<path>`）、`kind`（`content_mix | purpose | opening | memory_hint_dropped | memory_kind | audience | other`）、`note`（何を・なぜ）、任意で `alternative`（採らなかった解釈）。これは対象の評価ではなく、あなた自身の選択の記録。**無ければ `[]` を必ず書く**（キーが無いと「未記録」として警告される）
 5. memory batch（`kind: "memory"`）の場合は、`memory_candidates[]` の各パスについて、ディレクトリなら中のファイルを 2〜3 個、ファイルなら先頭 40 行を Read し、`memory_assessment[]` を書く。`is_memory` は「セッションやタスクを跨いで参照される、人間または AI が書く記録」かどうか。成果物置き場（reports、backlog）は `kind` をそれに合わせ、`is_memory` は運用次第で判断する
 6. `output` に JSON を Write する。`schema` は `"harness-review/extract@1"`、`batch` は input の値
-7. 報告は 1 行だけ：`wrote <output>: <n> files, <m> memory_ops[, k memory_assessment]` または `FAILED: <理由>`
+7. 報告は 1 行だけ：`wrote <output>: <n> files, <m> memory_ops[, k memory_assessment], <j> judgment_notes` または `FAILED: <理由>`
 
 ## 制約
 

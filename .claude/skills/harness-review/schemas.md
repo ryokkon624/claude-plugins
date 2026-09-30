@@ -91,11 +91,12 @@ batch は種別ごと最大 10 ファイル（`claude-md-1`, `rules-1`, `skills-
 - `opening`: 冒頭（frontmatter の description ＋ 本文の最初の数行）だけを読んで判断する
 - `memory_ops[].direction`: `write | read | both`。`trigger` は「いつ」、`what` は「何を」
 - `facts`: 事実だけ。判断（良い / 悪い）は書かない
+- `judgment_notes`（batch 直下、必須。無ければ `[]`。キーが無い batch は merge が「未記録」として `judgment_notes_missing` に記録する）: 抽出者自身の裁量判断の記録（ADR-0015）。`{ "target": "<id>", "kind": "content_mix | purpose | opening | memory_hint_dropped | memory_kind | audience | other", "note": "何を・なぜ", "alternative": "採らなかった解釈（任意）" }`。`target` は file id（`skill:x`）または memory id（`memory:docs/adr`。memory batch の `memory_kind` 判断用）。対象の評価ではなく、出力を作るときに置いた前提と選択。検証されない自己申告
 - `memory_assessment` は `memory-1` batch だけが書く。`kind`: `memory | decision-record | backlog | reports | spec | log | template | artifact | not-memory`、`lifecycle`: `session | per-task | per-sprint | long-term | unknown`
 
 ## harness.json（merge スクリプトが生成）
 
-`schema: "harness-review/harness@1"`。discover の内容に S1 の `summary / purpose / content_mix / opening / audience / memory_ops / facts` を各 file に合成し、memory を組み立てる。
+`schema: "harness-review/harness@1"`。discover の内容に S1 の `summary / purpose / content_mix / opening / audience / memory_ops / facts` を各 file に合成し、memory を組み立てる。トップレベルに `judgment_notes[]`（batch 横断、各要素に `batch` を付与）、`judgment_notes_missing[]`（キーを書かなかった batch 名）、`derived_judgments.dropped_memory_hints[]`（discover の memory 手がかりのうち、同じ行の `memory_ops` にならなかったもの＝抽出者が除外した手がかりをスクリプトが列挙）を持つ。
 
 ```json
 {
@@ -192,11 +193,12 @@ batch は入口 5 件ずつ（`entries-1`, `entries-2`, …）、hooks 全部で
 - `artifacts[].type`: `file | memory-write | commit | pr | external-message | report | none`
 - `review_points[].separate_context`: `true | false | "unknown"`。`criteria` / `on_fail` に記述がなければ `"none stated"`
 - `hint_attribution[].status`: `attributed | noise | unclassified`
+- `judgment_notes`（batch 直下、必須。無ければ `[]`）: 抽出者自身の裁量判断の記録（ADR-0015）。`kind`: `implicit_confidence | noise | not_flow | step_boundary | review_point | judgment_point | other`。`target` は入口 id（`skill:x`）、フロー id（`flow:x`）、step（`flow:x#3`）のいずれか。形は S1 と同じ
 - `mermaid`: `sequenceDiagram` のソース。参加者は actor、spawn は `->>`、返却は `-->>`、並列は `par`、ループは `loop`
 
 ## flows.json（merge スクリプトが生成）
 
-`schema: "harness-review/flows@1"`。batch を結合し、`calls[].flow` を解決（見つからなければ `unresolved:<name>`）、フロー間グラフ `graph: [{from, to, step}]` を作り、hint の帰属を集計する。
+`schema: "harness-review/flows@1"`。batch を結合し、`calls[].flow` を解決（見つからなければ `unresolved:<name>`）、フロー間グラフ `graph: [{from, to, step}]` を作り、hint の帰属を集計する。トップレベルに `judgment_notes[]`（batch 横断、各要素に `batch` を付与）と `judgment_notes_missing[]` を持つ。noise 判定と not_flows はそれぞれ `hint_attribution.items[]` と `not_flows[]` にあり、スクリプトが列挙した裁量として扱う。
 
 ```json
 {
@@ -320,8 +322,14 @@ batch は対象ファイルごとにまとめて 8 件程度（`verify-1`, `veri
 ```json
 {
   "schema": "harness-review/verification@1",
-  "stage1": { "discovered": 28, "extracted": 28, "missing": [], "retried": [] },
+  "stage1": { "discovered": 28, "extracted": 28, "missing": [] },
   "stage2": { "hints": 71, "attributed": 60, "noise": 8, "unclassified": [ { "file": "...", "line": 0, "text": "..." } ], "entries_without_flow": [] },
+  "extractor_judgments": {
+    "note": "self_reported は未検証の自己申告。derived はスクリプトが列挙",
+    "self_reported": { "stage1": [ { "batch": "skills-1", "target": "skill:x", "kind": "memory_hint_dropped", "note": "..." } ], "stage2": [] },
+    "missing": { "stage1": [], "stage2": [ "hooks-1" ] },
+    "derived": { "dropped_memory_hints": [ { "file": "skill:x", "line": 190, "direction": "read", "text": "..." } ], "noise_hints": [], "not_flows": [] }
+  },
   "stage4": { "total": 16, "confirmed": 11, "plausible": 3, "rejected": [ { "finding": {}, "note": "..." } ] }
 }
 ```

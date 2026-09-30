@@ -171,4 +171,5 @@ node "$SKILL/scripts/run.mjs" summary "<run_dir>"
 2. ①②③の件数（summary のまま）
 3. must の finding 一覧（id、対象、claim）。should は件数と代表 3 件
 4. 検証で落ちた finding の数、形式不備で除外した finding の数（`summary` の `excluded`）と警告、未分類の手がかり数、欠落があればその id
-5. **自己判断**：フォールバックを使った、再試行した、欠落を残したまま進めた、など、指示にない判断で対応したこと。無ければ「自己判断: なし」
+5. 抽出者（S1 / S2）の裁量判断（ADR-0015）：自己申告の件数（`summary` の `extractor judgment_notes`）、**未記録の batch があればその名前**（`UNRECORDED`）、スクリプトが列挙した除外 memory 手がかり数（上限値、`≤`）。一覧は report.html の検証ログにある。自己申告 0 件なら「自己申告 0 件（全 batch 記録済み）」、未記録があれば「batch X が未記録」と書く
+6. **自己判断**：フォールバックを使った、再試行した、欠落を残したまま進めた、など、指示にない判断で対応したこと。無ければ「自己判断: なし」
