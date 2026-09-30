@@ -1,0 +1,41 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/guard.test.mjs\" --quiet",
+            "timeout": 30,
+            "statusMessage": "guard hooks の自己テスト"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/guard-writes.mjs\"",
+            "timeout": 10,
+            "statusMessage": "guard-writes: 書き込み先を確認中"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/guard-bash.mjs\"",
+            "timeout": 10,
+            "statusMessage": "guard-bash: コマンドを確認中"
+          }
+        ]
+      }
+    ]
+  }
+}
