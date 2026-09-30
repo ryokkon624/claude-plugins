@@ -195,10 +195,15 @@ function mergeS1(runDir, run, runPath) {
   const disc = readJson(path.join(runDir, 'work', 'discover.json'));
   const extracted = new Map();
   let memoryAssessment = [];
+  const judgmentNotes = []; // extractor's self-reported discretionary choices (ADR-0015)
+  const judgmentNotesMissing = []; // batches whose output has no judgment_notes key at all (unrecorded ≠ zero)
   for (const p of listJson(path.join(runDir, 'work', 'extract'))) {
     const b = readJson(p);
+    const batch = b.batch ?? path.basename(p, '.json');
     for (const f of b.files ?? []) extracted.set(f.id, f);
     if (b.memory_assessment) memoryAssessment = memoryAssessment.concat(b.memory_assessment);
+    if (!Array.isArray(b.judgment_notes)) judgmentNotesMissing.push(batch);
+    else for (const n of b.judgment_notes) judgmentNotes.push({ batch, ...n });
   }
   const eligible = disc.files.filter((f) => LLM_KINDS.has(f.kind) && !f.binary_or_large).map((f) => f.id);
   const missing = eligible.filter((id) => !extracted.has(id));
@@ -243,9 +248,21 @@ function mergeS1(runDir, run, runPath) {
     missing_targets: memLike.filter((m) => m.exists === false).map((m) => m.id),
     harness_files_referenced: memory.filter((m) => m.is_harness_file).map((m) => m.id),
   };
+  // Derived (script-detected) discretionary choices: memory hints from discover that the extractor did not turn into a
+  // memory_op on the same line. Only files the extractor actually processed count; an unprocessed file's hints were never
+  // judged. Upper bound: a memory_op recorded on a neighbouring line still shows the hint as dropped.
+  const droppedMemoryHints = [];
+  for (const f of files) {
+    if (!extracted.has(f.id)) continue;
+    const opLines = new Set((f.memory_ops ?? []).map((o) => o.line).filter((l) => l != null));
+    for (const h of f.hints?.memory ?? []) if (!opLines.has(h.line)) droppedMemoryHints.push({ file: f.id, line: h.line, direction: h.direction, text: h.text });
+  }
   const harness = {
     schema: 'harness-review/harness@1',
     target: disc.target,
+    judgment_notes: judgmentNotes,
+    judgment_notes_missing: judgmentNotesMissing,
+    derived_judgments: { dropped_memory_hints: droppedMemoryHints },
     summary: { ...disc.summary, memory: memSummary },
     files, hooks: disc.hooks, permissions: disc.permissions, settings: disc.settings, mcp_servers: disc.mcp_servers,
     memory, memory_candidates: disc.memory_candidates, unknown_claude_files: disc.unknown_claude_files, notes: disc.notes,
@@ -264,11 +281,16 @@ function mergeS1(runDir, run, runPath) {
 function mergeS2(runDir, run, runPath) {
   const harness = readJson(path.join(runDir, 'harness.json'));
   let flows = [], notFlows = [], attribution = [];
+  const judgmentNotes = []; // extractor's self-reported discretionary choices (ADR-0015)
+  const judgmentNotesMissing = [];
   for (const p of listJson(path.join(runDir, 'work', 'flows'))) {
     const b = readJson(p);
+    const batch = b.batch ?? path.basename(p, '.json');
     flows = flows.concat(b.flows ?? []);
     notFlows = notFlows.concat(b.not_flows ?? []);
     attribution = attribution.concat(b.hint_attribution ?? []);
+    if (!Array.isArray(b.judgment_notes)) judgmentNotesMissing.push(batch);
+    else for (const n of b.judgment_notes) judgmentNotes.push({ batch, ...n });
   }
   // unique ids
   const seen = new Map();
@@ -306,6 +328,8 @@ function mergeS2(runDir, run, runPath) {
   for (const f of flows) byKind[f.kind] = (byKind[f.kind] ?? 0) + 1;
   const result = {
     schema: 'harness-review/flows@1',
+    judgment_notes: judgmentNotes,
+    judgment_notes_missing: judgmentNotesMissing,
     summary: { total: flows.length, by_kind: byKind, with_review_points: flows.filter((f) => f.review_points?.length).length, with_judgment_points: flows.filter((f) => f.judgment_points?.length).length, entries: entries.length, entries_without_flow: entriesWithoutFlow, not_flows: notFlows.length },
     flows, not_flows: notFlows, graph,
     hint_attribution: { ...counts, total: items.length, items },
@@ -477,10 +501,25 @@ function mergeS4(runDir, run, runPath) {
   const s1 = exists(path.join(runDir, 'work', 'coverage-S1.json')) ? readJson(path.join(runDir, 'work', 'coverage-S1.json')) : null;
   const s2 = exists(path.join(runDir, 'work', 'coverage-S2.json')) ? readJson(path.join(runDir, 'work', 'coverage-S2.json')) : null;
   const s3v = exists(path.join(runDir, 'work', 'review', 'validation.json')) ? readJson(path.join(runDir, 'work', 'review', 'validation.json')) : null;
+  const hj = exists(path.join(runDir, 'harness.json')) ? readJson(path.join(runDir, 'harness.json')) : null;
+  const fj = exists(path.join(runDir, 'flows.json')) ? readJson(path.join(runDir, 'flows.json')) : null;
+  // Extractor judgments live outside stage1/stage2 on purpose: stage1/2 hold verified coverage results, these are unverified.
+  // null (not []) when the merged JSON predates ADR-0015: "unknown" must stay distinguishable from "zero recorded".
+  const extractorJudgments = hj?.judgment_notes === undefined && fj?.judgment_notes === undefined ? null : {
+    note: 'self_reported は抽出者（S1 / S2）の自己申告で、検証されていない。derived はスクリプトが機械的に列挙したもの。stage が null なら、その JSON は ADR-0015 以前で記録が無い。',
+    self_reported: { stage1: hj?.judgment_notes ?? null, stage2: fj?.judgment_notes ?? null },
+    missing: { stage1: hj?.judgment_notes_missing ?? null, stage2: fj?.judgment_notes_missing ?? null },
+    derived: {
+      dropped_memory_hints: hj?.derived_judgments?.dropped_memory_hints ?? [],
+      noise_hints: (fj?.hint_attribution?.items ?? []).filter((i) => i.status === 'noise'),
+      not_flows: fj?.not_flows ?? [],
+    },
+  };
   const verification = {
     schema: 'harness-review/verification@1',
     stage1: s1 ? { discovered: s1.discovered, extracted: s1.extracted, missing: s1.missing } : null,
     stage2: s2 ? { hints: s2.hints, attributed: s2.attributed, noise: s2.noise, unclassified: s2.unclassified, entries_without_flow: s2.entries_without_flow } : null,
+    extractor_judgments: extractorJudgments,
     stage3: { axes: all.axes, unchecked_cells: cells.filter((c) => c.status === 'unchecked').length, invalid_findings: s3v?.invalid_findings ?? [], invalid_passes: s3v?.invalid_passes ?? 0, invalid_na: s3v?.invalid_na ?? 0, warnings: s3v?.warnings ?? [] },
     stage4: { skipped: !!skip, total: all.findings.length, confirmed: kept.filter((f) => f.verification.verdict === 'CONFIRMED').length, plausible: kept.filter((f) => f.verification.verdict === 'PLAUSIBLE').length, unverified: unverified.length, rejected },
   };
@@ -533,8 +572,8 @@ function cmdSummary(args) {
   const lines = [];
   lines.push(`run: ${run.run_id}  target: ${run.target.path}`);
   lines.push(`stages: ${STAGES.map((s) => `${s}=${run.stages[s]?.status ?? '-'}`).join(' ')}`);
-  if (h) lines.push(`①: files ${h.files.length} (${Object.entries(h.summary.counts).map(([k, n]) => `${k} ${n}`).join(', ')}), always≈${h.summary.always_loaded_tokens_est} tok, memory ${h.memory.length} (write-only ${h.summary.memory.write_only.length}, read-only ${h.summary.memory.read_only.length})`);
-  if (fl) lines.push(`②: flows ${fl.summary.total} (${Object.entries(fl.summary.by_kind).map(([k, n]) => `${k} ${n}`).join(', ')}), review_points in ${fl.summary.with_review_points}, judgment_points in ${fl.summary.with_judgment_points}, hints attributed/noise/unclassified ${fl.hint_attribution.attributed}/${fl.hint_attribution.noise}/${fl.hint_attribution.unclassified}`);
+  if (h) lines.push(`①: files ${h.files.length} (${Object.entries(h.summary.counts).map(([k, n]) => `${k} ${n}`).join(', ')}), always≈${h.summary.always_loaded_tokens_est} tok, memory ${h.memory.length} (write-only ${h.summary.memory.write_only.length}, read-only ${h.summary.memory.read_only.length}), extractor judgment_notes ${h.judgment_notes === undefined ? 'unknown (run predates ADR-0015)' : `${h.judgment_notes.length}${h.judgment_notes_missing?.length ? ` (UNRECORDED in ${h.judgment_notes_missing.length} batch: ${h.judgment_notes_missing.join(', ')})` : ''}, dropped memory hints ≤${h.derived_judgments?.dropped_memory_hints?.length ?? 0}`}`);
+  if (fl) lines.push(`②: flows ${fl.summary.total} (${Object.entries(fl.summary.by_kind).map(([k, n]) => `${k} ${n}`).join(', ')}), review_points in ${fl.summary.with_review_points}, judgment_points in ${fl.summary.with_judgment_points}, hints attributed/noise/unclassified ${fl.hint_attribution.attributed}/${fl.hint_attribution.noise}/${fl.hint_attribution.unclassified}, extractor judgment_notes ${fl.judgment_notes === undefined ? 'unknown (run predates ADR-0015)' : `${fl.judgment_notes.length}${fl.judgment_notes_missing?.length ? ` (UNRECORDED in ${fl.judgment_notes_missing.length} batch: ${fl.judgment_notes_missing.join(', ')})` : ''}`}, not_flows ${fl.not_flows?.length ?? 0}`);
   if (fd) {
     const s = fd.summary;
     lines.push(`③: findings ${fd.findings.length} (must ${s.by_severity.must ?? 0} / should ${s.by_severity.should ?? 0} / nice to have ${s.by_severity['nice to have'] ?? 0}), verdict ${Object.entries(s.by_verdict).map(([k, n]) => `${k} ${n}`).join(', ')}, vs previous: ${s.vs_previous.previous_run ? `resolved ${s.vs_previous.resolved} / new ${s.vs_previous.new} / continued ${s.vs_previous.continued}` : 'first run'}`);

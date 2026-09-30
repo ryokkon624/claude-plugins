@@ -163,7 +163,7 @@ function harnessSection(h) {
 <td class="n">${num(f.size?.lines)}</td><td class="n">${num(f.size?.tokens_est)}</td>
 <td>${esc(f.summary ?? '')}${fileDetails(f)}</td>
 </tr>`).join('\n');
-  const memRows = (h.memory ?? []).map((m) => `<tr>
+  const memRows = (h.memory ?? []).map((m) => `<tr id="memory-${slug(m.id ?? `memory:${m.path}`)}">
 <td><code>${esc(m.path)}</code>${m.exists === false ? ' <span class="badge err">存在しない</span>' : ''}</td>
 <td>${esc(m.kind)}</td><td>${esc(m.lifecycle ?? '')}</td>
 <td>${esc(m.description ?? '')}</td>
@@ -311,6 +311,23 @@ function verificationSection(v, findings, run) {
   const inv = v.stage3?.invalid_findings?.length ? `<details open><summary>形式不備で除外した finding（${v.stage3.invalid_findings.length}）</summary><ul>${v.stage3.invalid_findings.map((i) => `<li><span class="pill axis">${esc(i.axis)}</span> <code>${esc(i.check ?? '-')}</code> ${esc(i.target?.id ?? '')} — ${esc(String(i.claim ?? '').slice(0, 160))}<div class="s">${esc(i.reasons.join(' / '))}</div></li>`).join('')}</ul></details>` : '';
   const s4 = v.stage4 ? `<li>④: ${v.stage4.skipped ? '<span class="badge warn">スキップ</span>' : `finding ${v.stage4.total} ／ CONFIRMED ${v.stage4.confirmed} ／ PLAUSIBLE ${v.stage4.plausible} ／ REJECTED ${v.stage4.rejected?.length ?? 0}${v.stage4.unverified ? ` ／ <span class="badge warn">未検証 ${v.stage4.unverified}</span>` : ''}`}</li>` : '';
   const uncl = v.stage2?.unclassified?.length ? `<details><summary>未分類の spawn 手がかり（${v.stage2.unclassified.length}）</summary><ul>${v.stage2.unclassified.map((u) => `<li><code>${esc(u.path ?? u.file)}</code>:${u.line} — ${esc(u.text)}</li>`).join('')}</ul></details>` : '';
+  const ej = v.extractor_judgments;
+  const notes = [...(ej?.self_reported?.stage1 ?? []).map((n) => ({ stage: '①', ...n })), ...(ej?.self_reported?.stage2 ?? []).map((n) => ({ stage: '②', ...n }))];
+  const missing = [...(ej?.missing?.stage1 ?? []).map((b) => `① ${b}`), ...(ej?.missing?.stage2 ?? []).map((b) => `② ${b}`)];
+  const targetLink = (t) => { const id = String(t ?? ''); const anchor = id.startsWith('flow:') ? `flow-${slug(id.split('#')[0])}` : id.startsWith('memory:') ? `memory-${slug(id)}` : `file-${slug(id)}`; return `<a href="#${anchor}"><code>${esc(id)}</code></a>`; };
+  const derived = ej?.derived ?? {};
+  const dropped = derived.dropped_memory_hints ?? [], noise = derived.noise_hints ?? [], notFlowsD = derived.not_flows ?? [];
+  const jn = `<h3>抽出者の裁量判断</h3>
+<p class="s">①②の「事実」に混ざった抽出者（S1 / S2）自身の選択（ADR-0015）。<strong>自己申告は検証されていない</strong>。機械的に列挙できるものはスクリプトが出す。</p>
+${!ej ? '<p><span class="badge warn">記録なし</span> この run には裁量判断の記録がありません（ADR-0015 以前の run。0 件の記録とは区別する）</p>' : ''}
+${ej && (ej.self_reported?.stage1 === null || ej.self_reported?.stage2 === null) ? `<p><span class="badge warn">記録なし</span> ${[ej.self_reported?.stage1 === null ? '①（harness.json）' : null, ej.self_reported?.stage2 === null ? '②（flows.json）' : null].filter(Boolean).join('・')} は ADR-0015 以前の出力で、裁量判断の記録がありません（0 件の記録とは区別する）</p>` : ''}
+${missing.length ? `<p><span class="badge warn">未記録の batch ${missing.length}</span> ${esc(missing.join(', '))} — この batch の抽出者は judgment_notes を書かなかった（0 件の記録とは区別する）</p>` : ''}
+${ej ? `<details><summary>自己申告（${notes.length}）${missing.length ? '' : ' <span class="s">— 全 batch が記録済み</span>'}</summary>${notes.length ? `<ul>${notes.map((n) => `<li><span class="pill kind">${esc(n.stage)} ${esc(n.kind ?? 'other')}</span> ${targetLink(n.target ?? n.file)} — ${esc(n.note ?? '')}${n.alternative ? `<div class="s">別の解釈: ${esc(n.alternative)}</div>` : ''}<div class="s">batch ${esc(n.batch ?? '')}</div></li>`).join('')}</ul>` : '<p class="empty">0 件（抽出者は裁量判断なしと報告）</p>'}</details>
+<details><summary>スクリプトが列挙した裁量（除外した memory 手がかり ≤${dropped.length} · noise 判定 ${noise.length} · フローでないと判定した入口 ${notFlowsD.length}）</summary>
+${dropped.length ? `<div class="bl">discover の memory 手がかりのうち、同じ行の memory_ops にならなかったもの（上限値：隣の行に記録された場合も含まれる）</div><ul>${dropped.map((d) => `<li>${targetLink(d.file)}:${d.line} <span class="s">${esc(d.direction ?? '')}</span> — ${esc(d.text ?? '')}</li>`).join('')}</ul>` : ''}
+${noise.length ? `<div class="bl">spawn 手がかりのうち noise と判定されたもの</div><ul>${noise.map((n) => `<li><code>${esc(n.path ?? n.file)}</code>:${n.line} — ${esc(n.text ?? '')}${n.reason ? `<div class="s">${esc(n.reason)}</div>` : ''}</li>`).join('')}</ul>` : ''}
+${notFlowsD.length ? `<div class="bl">フローではないと判定した入口</div><ul>${notFlowsD.map((n) => `<li><code>${esc(n.entry)}</code> — ${esc(n.reason ?? '')}</li>`).join('')}</ul>` : ''}
+</details>` : ''}`;
   const rej = v.stage4?.rejected?.length ? `<details open><summary>REJECTED された finding（${v.stage4.rejected.length}）</summary>${v.stage4.rejected.map((r) => `<article class="finding rejected"><header><span class="pill ${sevClass(r.finding.severity)}">${esc(r.finding.severity)}</span> <span class="pill axis">${esc(r.finding.axis)}</span> <span class="pill check">${esc(r.finding.check)}</span> <code class="fid">${esc(r.finding.id)}</code></header><div class="claim">${esc(r.finding.claim)}</div><div class="block verify"><div class="bl">却下理由</div>${esc(r.note ?? '')}<div class="s">evidence ${esc(r.evidence_check)} · claim ${esc(r.claim_check)} · proposal ${esc(r.proposal_check)}</div></div></article>`).join('')}</details>` : '';
   const stages = Object.entries(run.stages ?? {}).map(([k, s]) => `<span class="pill st-${esc(s.status)}">${esc(k)} ${esc(s.status)}${s.batches ? ` (${s.batches})` : ''}</span>`).join(' ');
   return `<section id="verification">
@@ -318,6 +335,7 @@ function verificationSection(v, findings, run) {
 <p>${stages}</p>
 <ul>${s1}${s2}${s3}${s4}</ul>
 ${uncl}
+${jn}
 ${inv}
 ${rej}
 </section>`;

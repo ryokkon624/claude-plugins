@@ -22,3 +22,4 @@ harness-review の設計判断を 1 決定 1 ファイルで記録する。形�
 | [0012](0012-node-no-deps.md) | Accepted | スクリプトは Node（npm 依存なし）で書く |
 | [0013](0013-verify-adrs-adversarially.md) | Accepted | 新しい ADR は別コンテキストで反証してから Accepted にする |
 | [0014](0014-write-guard-hooks.md) | Accepted | プロジェクト外への書き込みと main への直接 push を PreToolUse hook で機械的に止める |
+| [0015](0015-extractor-judgment-notes.md) | Accepted | 抽出者（S1 / S2）の裁量判断を judgment_notes として記録し、検証ログと最終報告に載せる |
