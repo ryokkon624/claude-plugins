@@ -1,6 +1,6 @@
 # ADR-0009: subagent は結果をファイルに書き、オーケストレータにデータを返さない
 
-- Status: Accepted
+- Status: Accepted — 適用範囲（harness-review パイプライン内の subagent）は ADR-0013 で明確化
 - Date: 2026-09-24
 
 ## Context
