@@ -504,10 +504,11 @@ function mergeS4(runDir, run, runPath) {
   const hj = exists(path.join(runDir, 'harness.json')) ? readJson(path.join(runDir, 'harness.json')) : null;
   const fj = exists(path.join(runDir, 'flows.json')) ? readJson(path.join(runDir, 'flows.json')) : null;
   // Extractor judgments live outside stage1/stage2 on purpose: stage1/2 hold verified coverage results, these are unverified.
-  const extractorJudgments = {
-    note: 'self_reported は抽出者（S1 / S2）の自己申告で、検証されていない。derived はスクリプトが機械的に列挙したもの。',
-    self_reported: { stage1: hj?.judgment_notes ?? [], stage2: fj?.judgment_notes ?? [] },
-    missing: { stage1: hj?.judgment_notes_missing ?? [], stage2: fj?.judgment_notes_missing ?? [] },
+  // null (not []) when the merged JSON predates ADR-0015: "unknown" must stay distinguishable from "zero recorded".
+  const extractorJudgments = hj?.judgment_notes === undefined && fj?.judgment_notes === undefined ? null : {
+    note: 'self_reported は抽出者（S1 / S2）の自己申告で、検証されていない。derived はスクリプトが機械的に列挙したもの。stage が null なら、その JSON は ADR-0015 以前で記録が無い。',
+    self_reported: { stage1: hj?.judgment_notes ?? null, stage2: fj?.judgment_notes ?? null },
+    missing: { stage1: hj?.judgment_notes_missing ?? null, stage2: fj?.judgment_notes_missing ?? null },
     derived: {
       dropped_memory_hints: hj?.derived_judgments?.dropped_memory_hints ?? [],
       noise_hints: (fj?.hint_attribution?.items ?? []).filter((i) => i.status === 'noise'),

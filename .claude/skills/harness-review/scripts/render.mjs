@@ -320,6 +320,7 @@ function verificationSection(v, findings, run) {
   const jn = `<h3>抽出者の裁量判断</h3>
 <p class="s">①②の「事実」に混ざった抽出者（S1 / S2）自身の選択（ADR-0015）。<strong>自己申告は検証されていない</strong>。機械的に列挙できるものはスクリプトが出す。</p>
 ${!ej ? '<p><span class="badge warn">記録なし</span> この run には裁量判断の記録がありません（ADR-0015 以前の run。0 件の記録とは区別する）</p>' : ''}
+${ej && (ej.self_reported?.stage1 === null || ej.self_reported?.stage2 === null) ? `<p><span class="badge warn">記録なし</span> ${[ej.self_reported?.stage1 === null ? '①（harness.json）' : null, ej.self_reported?.stage2 === null ? '②（flows.json）' : null].filter(Boolean).join('・')} は ADR-0015 以前の出力で、裁量判断の記録がありません（0 件の記録とは区別する）</p>` : ''}
 ${missing.length ? `<p><span class="badge warn">未記録の batch ${missing.length}</span> ${esc(missing.join(', '))} — この batch の抽出者は judgment_notes を書かなかった（0 件の記録とは区別する）</p>` : ''}
 ${ej ? `<details><summary>自己申告（${notes.length}）${missing.length ? '' : ' <span class="s">— 全 batch が記録済み</span>'}</summary>${notes.length ? `<ul>${notes.map((n) => `<li><span class="pill kind">${esc(n.stage)} ${esc(n.kind ?? 'other')}</span> ${targetLink(n.target ?? n.file)} — ${esc(n.note ?? '')}${n.alternative ? `<div class="s">別の解釈: ${esc(n.alternative)}</div>` : ''}<div class="s">batch ${esc(n.batch ?? '')}</div></li>`).join('')}</ul>` : '<p class="empty">0 件（抽出者は裁量判断なしと報告）</p>'}</details>
 <details><summary>スクリプトが列挙した裁量（除外した memory 手がかり ≤${dropped.length} · noise 判定 ${noise.length} · フローでないと判定した入口 ${notFlowsD.length}）</summary>
