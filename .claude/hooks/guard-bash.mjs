@@ -47,14 +47,16 @@ export function decide(input, env = process.env, branchOf = currentBranch) {
   const cmd = String(input?.tool_input?.command ?? '');
   if (!cmd.trim()) return { allow: true, reason: 'empty' };
   const cwd = input?.cwd || process.cwd();
-  const segments = cmd.split(/&&|\|\||;|\||\r?\n/).map((s) => ({ raw: s, text: stripMessages(s) }));
+  // Blank out quoted messages BEFORE splitting, so a `|` or `;` inside a quoted string does not split the command
+  // (which would leave unbalanced quotes and turn regex literals like /\r?\n/ into "paths").
+  const segments = stripMessages(cmd).split(/&&|\|\||;|\||\r?\n/);
 
   // 1. git push to main/master (including --delete)
   if (/\bgit\b/.test(cmd)) {
     let branch;
     const getBranch = () => (branch === undefined ? (branch = branchOf(cwd)) : branch);
     for (const seg of segments) {
-      const m = seg.text.match(/\bgit\s+(?:-C\s+\S+\s+)?push\b([^\n]*)$/);
+      const m = seg.match(/\bgit\s+(?:-C\s+\S+\s+)?push\b([^\n]*)$/);
       if (!m) continue;
       const args = m[1].trim().split(/\s+/).filter(Boolean);
       const deleting = args.includes('--delete') || args.includes('-d');
@@ -62,28 +64,28 @@ export function decide(input, env = process.env, branchOf = currentBranch) {
       let targets = refs.some((r) => refTargetsProtected(r, r.includes('HEAD') ? getBranch() : null));
       let via = targets ? (deleting ? 'delete' : 'explicit ref') : null;
       if (!targets && !deleting && refs.length === 0) { const b = getBranch(); if (b && PROTECTED.test(b)) { targets = true; via = `current branch ${b}`; } }
-      if (targets) return { allow: false, kind: 'push', reason: `push to main/master (${via})`, segment: seg.raw.trim() };
+      if (targets) return { allow: false, kind: 'push', reason: `push to main/master (${via})`, segment: seg.trim() };
     }
   }
 
   // 2 + 3. writes outside the project / to the guard, tracking `cd` across segments
-  if (!segments.some((s) => isWrite(s.text))) return { allow: true, reason: 'no write-ish token' };
+  if (!segments.some((s) => isWrite(s))) return { allow: true, reason: 'no write-ish token' };
   const roots = allowedRoots(input, env);
   const editOk = guardEditAllowed(env);
   let cur = norm(cwd);
   for (const seg of segments) {
-    const cdm = seg.text.match(/^\s*(?:cd|Set-Location|pushd)\s+(\S+)/i);
+    const cdm = seg.match(/^\s*(?:cd|Set-Location|pushd)\s+(\S+)/i);
     if (cdm && cdm[1] !== '-' && cdm[1] !== '""') cur = resolveToken(cdm[1], cur);
-    const writing = isWrite(seg.text);
+    const writing = isWrite(seg);
     if (writing) {
-      if (!isAllowed(cur, roots.list)) return { allow: false, kind: 'write', reason: `cwd is outside the project: ${cur}`, segment: seg.raw.trim() };
-      if (!editOk && isGuardDir(cur, roots.projectDir)) return { allow: false, kind: 'write', reason: `writing from inside the guard directory: ${cur}`, segment: seg.raw.trim() };
+      if (!isAllowed(cur, roots.list)) return { allow: false, kind: 'write', reason: `cwd is outside the project: ${cur}`, segment: seg.trim() };
+      if (!editOk && isGuardDir(cur, roots.projectDir)) return { allow: false, kind: 'write', reason: `writing from inside the guard directory: ${cur}`, segment: seg.trim() };
     }
     if (!writing) continue; // a bare `cd <outside>` only moves the effective cwd; the write check above covers it
-    for (const t of pathTokens(seg.text)) {
+    for (const t of pathTokens(seg)) {
       const abs = resolveToken(t, cur);
-      if (writing && !editOk && isGuardFile(abs, roots.projectDir)) return { allow: false, kind: 'write', reason: `guard files are protected: ${t.replaceAll(SPACE, ' ')}`, segment: seg.raw.trim() };
-      if (!isAllowed(abs, roots.list)) return { allow: false, kind: 'write', reason: `path outside the project: ${t.replaceAll(SPACE, ' ')}`, segment: seg.raw.trim() };
+      if (writing && !editOk && isGuardFile(abs, roots.projectDir)) return { allow: false, kind: 'write', reason: `guard files are protected: ${t.replaceAll(SPACE, ' ')}`, segment: seg.trim() };
+      if (!isAllowed(abs, roots.list)) return { allow: false, kind: 'write', reason: `path outside the project: ${t.replaceAll(SPACE, ' ')}`, segment: seg.trim() };
     }
   }
   return { allow: true, reason: 'writes stay inside allowed roots' };

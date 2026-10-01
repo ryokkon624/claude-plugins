@@ -1,6 +1,6 @@
 # ADR-0006: severity は must / should / nice to have の 3 段階とし、pass は findings とは別セクションに出す
 
-- Status: Accepted
+- Status: Accepted — マトリクスの母集団（対象 × 軸 → check ごとの対象種別）は ADR-0016 で明確化
 - Date: 2026-09-24
 
 ## Context

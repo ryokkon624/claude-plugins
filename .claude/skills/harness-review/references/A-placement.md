@@ -19,19 +19,19 @@
 
 ## check 一覧
 
-| ID | チェック | severity 目安 | basis |
-|---|---|---|---|
-| A1 | 常駐（always）に、複数ステップの手順や、コードベースの一部にしか関係しない内容がない | should | official |
-| A2 | CLAUDE.md が 1 ファイル 200 行以下。常駐の合計トークンが肥大していない | should | official |
-| A3 | rule の `paths` の有無が内容と一致している（パス限定の内容に `paths` がある。汎用の内容に `paths` がない） | should | official |
-| A4 | 「例外なく必ず / 絶対に〜するな」に相当する指示が、散文だけでなく hook または permissions で強制されている | should（破壊的操作・セキュリティに関わるものは must） | official |
-| A5 | ファイル間で指示が重複・矛盾していない | must（矛盾）/ should（重複） | official |
-| A6 | 参照が実在する：`skills:` で注入する skill、呼び出す agent / skill、`@import` 先、hook のスクリプトが存在し、対象ディレクトリ内にある。孤立したスクリプトがない | must | custom |
-| A7 | skill の内容種別と起動制御が合っている：副作用のある task 型に `disable-model-invocation: true`、参照専用に `user-invocable: false`、手順のない skill に `context: fork` がない | should | official |
-| A8 | agent の起動時コンテキスト（本文＋注入 skill）が過大でない。参照型の大きな skill を、必要のない agent にまで注入していない | should | custom |
-| A9 | `.claude/commands/`（旧配置）ではなく skills を使っている | nice to have | official |
-| A10 | memory に書く指示と読む指示の両方がある（write-only / read-only でない）。記録先が存在する | must（必須の書き込み指示があるのに読まれない）/ should | custom |
-| A11 | main conversation / subagent / skill の使い分けが公式の指針に沿っている（往復が要る作業を subagent にしていない、冗長な出力を main で受けていない） | nice to have | official |
+| ID | チェック | severity 目安 | basis | 対象 |
+|---|---|---|---|---|
+| A1 | 常駐（always）に、複数ステップの手順や、コードベースの一部にしか関係しない内容がない | should | official | file:claude-md / file:rule |
+| A2 | CLAUDE.md が 1 ファイル 200 行以下。常駐の合計トークンが肥大していない | should | official | file:claude-md / harness |
+| A3 | rule の `paths` の有無が内容と一致している（パス限定の内容に `paths` がある。汎用の内容に `paths` がない） | should | official | file:rule |
+| A4 | 「例外なく必ず / 絶対に〜するな」に相当する指示が、散文だけでなく hook または permissions で強制されている | should（破壊的操作・セキュリティに関わるものは must） | official | file:claude-md / file:rule / file:skill / file:agent |
+| A5 | ファイル間で指示が重複・矛盾していない | must（矛盾）/ should（重複） | official | harness |
+| A6 | 参照が実在する：`skills:` で注入する skill、呼び出す agent / skill、`@import` 先、hook のスクリプトが存在し、対象ディレクトリ内にある。孤立したスクリプトがない | must | custom | file:agent / file:skill / file:claude-md / hook |
+| A7 | skill の内容種別と起動制御が合っている：副作用のある task 型に `disable-model-invocation: true`、参照専用に `user-invocable: false`、手順のない skill に `context: fork` がない | should | official | file:skill |
+| A8 | agent の起動時コンテキスト（本文＋注入 skill）が過大でない。参照型の大きな skill を、必要のない agent にまで注入していない | should | custom | file:agent |
+| A9 | `.claude/commands/`（旧配置）ではなく skills を使っている | nice to have | official | harness |
+| A10 | memory に書く指示と読む指示の両方がある（write-only / read-only でない）。記録先が存在する | must（必須の書き込み指示があるのに読まれない）/ should | custom | memory |
+| A11 | main conversation / subagent / skill の使い分けが公式の指針に沿っている（往復が要る作業を subagent にしていない、冗長な出力を main で受けていない） | nice to have | official | flow |
 
 ## 公式
 

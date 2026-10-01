@@ -23,7 +23,10 @@ const STAGES = ['S0', 'S1', 'S2', 'S3', 'S4', 'S5'];
 const AXES = ['A', 'B', 'C', 'D', 'E'];
 const LLM_KINDS = new Set(['claude-md', 'import', 'rule', 'skill', 'skill-support', 'command', 'agent', 'hook-script', 'workflow']);
 const ENTRY_KINDS = new Set(['skill', 'command', 'agent', 'workflow']);
-const S1_BATCH = 10, S2_BATCH = 5, S4_BATCH = 8;
+const S1_BATCH = 10, S2_BATCH = 5, S4_BATCH = 8, S3_GAPS_BATCH = 40;
+// discover file kinds; used to validate `file:<kind>` tokens in the references' 対象 column (ADR-0016)
+const FILE_KINDS = new Set(['claude-md', 'import', 'rule', 'skill', 'skill-support', 'command', 'agent', 'settings', 'mcp-config', 'hooks-config', 'hook-script', 'workflow', 'plugin-manifest', 'marketplace-manifest']);
+const TARGET_TOKENS = new Set(['file', 'hook', 'memory', 'mcp', 'flow', 'harness']);
 const SEVERITY_ORDER = { must: 0, should: 1, 'nice to have': 2 };
 const BASES = new Set(['official', 'custom']);
 
@@ -49,7 +52,7 @@ function loadRun(runDir) {
 }
 function saveRun(runPath, run) { writeJson(runPath, run); }
 function setStage(run, stage, patch) { run.stages[stage] = { ...(run.stages[stage] ?? {}), ...patch }; }
-function normalizeTarget(t) { return posix(String(t)).replace(/^\.\//, '').replace(/^\$\{?CLAUDE_PROJECT_DIR\}?\//, ''); }
+function normalizeTarget(t) { return posix(String(t)).replace(/^\.\//, '').replace(/^\$\{?CLAUDE_PROJECT_DIR\}?\//, '').replace(/\/+$/, ''); }
 // Collapse placeholder spellings (sprint_XX, sprint_{N}, review-#N, <lens>, ${x}) so the same logical target merges.
 function canonicalTarget(t) {
   return normalizeTarget(t)
@@ -172,6 +175,52 @@ function cmdPlan(args) {
       const implicit = harness.files.filter((f) => f.kind === 'claude-md' || f.kind === 'import' || (f.kind === 'rule' && f.load === 'always'));
       if (implicit.length) push('flows', 'implicit-1', { ...base, kind: 'implicit', entries: implicit }, 'flow-extractor');
     }
+  } else if (stage === 'S3') {
+    const refDir = path.join(SKILL_DIR, 'references');
+    const refFile = (ax) => {
+      const f = fs.readdirSync(refDir).find((f) => f.startsWith(`${ax}-`) && f.endsWith('.md'));
+      if (!f) throw new Error(`reference document for axis ${ax} not found in ${refDir} (expected ${ax}-*.md)`);
+      return f;
+    };
+    const reviewDir = path.join(runDir, 'work', 'review');
+    if (!rest.includes('--gaps')) {
+      // ADR-0016: the first pass gets the full cell list (check × universe) so coverage does not depend on prose.
+      const harness = readJson(path.join(runDir, 'harness.json'));
+      const flows = exists(path.join(runDir, 'flows.json')) ? readJson(path.join(runDir, 'flows.json')) : null;
+      const checks = loadChecks();
+      for (const ax of AXES) {
+        const axChecks = checks.filter((c) => c.axis === ax);
+        const cells = [];
+        for (const c of axChecks) for (const t of targetUniverse(c.targets, harness, flows)) cells.push({ check: c.id, title: c.title, target: { type: targetType(t), id: t } });
+        const inputPath = path.join(reviewDir, `${ax}.input.json`);
+        writeJson(inputPath, { schema: 'harness-review/batch-input@1', batch: ax, kind: 'review', axis: ax, reference: posix(path.join(refDir, refFile(ax))), checks: axChecks.map((c) => ({ id: c.id, title: c.title, severity_hint: c.severity_hint, basis: c.basis, targets: c.targets })), cells, ...common, harness_json: posix(path.join(runDir, 'harness.json')), flows_json: posix(path.join(runDir, 'flows.json')) });
+        batches.push({ batch: ax, agent: 'harness-reviewer', axis: ax, input: posix(inputPath), output: posix(path.join(reviewDir, `${ax}.json`)), cells: cells.length });
+      }
+      setStage(run, 'S3', { status: 'running', started_at: run.stages.S3?.started_at ?? now(), batches: batches.length });
+      saveRun(runPath, run);
+      out({ stage, batches });
+      return;
+    }
+    // --gaps: one gap-fill pass per run, split into batches of S3_GAPS_BATCH cells; outputs go to <axis>.gaps-<n>.json
+    if (run.stages.S3?.gap_fill) { out({ stage, batches: [], note: `gap fill already ${run.stages.S3.gap_fill}; not planning again` }); return; }
+    const gapsPath = path.join(reviewDir, 'gaps.json');
+    if (!exists(gapsPath)) fail('no gaps.json yet: run merge S3 first');
+    const gaps = readJson(gapsPath);
+    for (const ax of AXES) {
+      const cells = gaps.cells.filter((c) => c.axis === ax);
+      if (!cells.length) continue;
+      chunk(cells, S3_GAPS_BATCH).forEach((part, i) => {
+        const n = i + 1;
+        const inputPath = path.join(reviewDir, `gaps-${ax}-${n}.input.json`);
+        const outputPath = path.join(reviewDir, `${ax}.gaps-${n}.json`);
+        writeJson(inputPath, { schema: 'harness-review/batch-input@1', batch: `gaps-${ax}-${n}`, kind: 'gaps', axis: ax, reference: posix(path.join(refDir, refFile(ax))), existing_output: exists(path.join(reviewDir, `${ax}.json`)) ? posix(path.join(reviewDir, `${ax}.json`)) : null, cells: part, ...common });
+        batches.push({ batch: `gaps-${ax}-${n}`, agent: 'harness-reviewer', axis: ax, input: posix(inputPath), output: posix(outputPath), cells: part.length });
+      });
+    }
+    setStage(run, 'S3', { status: 'running', gap_fill: 'planned', gap_fill_batches: batches.length });
+    saveRun(runPath, run);
+    out({ stage, batches, gaps: gaps.by_axis });
+    return;
   } else if (stage === 'S4') {
     if (run.options.skip_verify) { out({ batches: [], skipped: true }); return; }
     const all = readJson(path.join(runDir, 'work', 'review', 'all.json'));
@@ -357,15 +406,30 @@ function mergeS3(runDir, run, runPath) {
   let findings = [], passes = [], na = [];
   const axesDone = [];
   for (const ax of AXES) {
-    const p = path.join(dir, `${ax}.json`);
-    if (!exists(p)) continue;
-    const b = readJson(p);
-    axesDone.push(ax);
     // the file's axis is authoritative; a reviewer-written axis is ignored for findings, passes and na alike
-    findings = findings.concat((b.findings ?? []).map((f) => ({ ...f, axis: ax })));
-    passes = passes.concat((b.passes ?? []).map((x) => ({ ...x, axis: ax })));
-    na = na.concat((b.na ?? []).map((x) => ({ ...x, axis: ax })));
+    const norm = (x) => ({ ...x, target: asTargetObject(x.target), axis: ax });
+    const p = path.join(dir, `${ax}.json`);
+    if (exists(p)) {
+      const b = readJson(p);
+      axesDone.push(ax);
+      findings = findings.concat((b.findings ?? []).map(norm));
+      passes = passes.concat((b.passes ?? []).map(norm));
+      na = na.concat((b.na ?? []).map(norm));
+    }
+    // gap-fill output (ADR-0016) lives in separate files (<axis>.gaps-<n>.json) so the original review is never rewritten.
+    // It is read even when <axis>.json is missing (an axis that stayed missing after its retry is filled cell by cell).
+    // Deduplication against the original review happens AFTER validation (see below), so a cell whose original entry
+    // was excluded as invalid can still be filled by the gap-fill pass.
+    for (const gp of listJson(dir).filter((p) => new RegExp(`[\\\\/]${ax}\\.gaps(-\\d+)?\\.json$`).test(p))) {
+      const g = readJson(gp);
+      findings = findings.concat((g.findings ?? []).map(norm).map((f) => ({ ...f, source: 'gap-fill' })));
+      passes = passes.concat((g.passes ?? []).map(norm).map((x) => ({ ...x, source: 'gap-fill' })));
+      na = na.concat((g.na ?? []).map(norm).map((x) => ({ ...x, source: 'gap-fill' })));
+    }
   }
+  // 対象 column vocabulary (ADR-0016): an unknown token would silently shrink a check's universe to nothing.
+  const vocabWarnings = [];
+  for (const c of checks) for (const tok of invalidTargetTokens(c.targets)) vocabWarnings.push(`${c.id}: unknown 対象 token "${tok}" in ${c.reference}`);
 
   // Deterministic validation of S3 output (C7): what the reviewer prompt asks for in prose is checked here.
   const invalid = [];
@@ -387,13 +451,26 @@ function mergeS3(runDir, run, runPath) {
     if (reasons.length) { invalid.push({ axis: f.axis, check: f.check ?? null, target: f.target ?? null, claim: f.claim ?? null, reasons }); return false; }
     return true;
   });
-  const badCheck = (x) => !x.check || checkAxis.get(x.check) !== x.axis;
-  const invalidPasses = passes.filter(badCheck).length, invalidNa = na.filter(badCheck).length;
-  passes = passes.filter((x) => !badCheck(x));
-  na = na.filter((x) => !badCheck(x));
+  // pass needs a note, na needs a reason: the only trace of what the reviewer looked at (ADR-0006, ADR-0016)
+  const badCheck = (x) => !x.check || checkAxis.get(x.check) !== x.axis || !x.target?.id;
+  const badPass = (x) => badCheck(x) || !x.note || !String(x.note).trim();
+  const badNa = (x) => badCheck(x) || !x.reason || !String(x.reason).trim();
+  const invalidPasses = passes.filter(badPass).length, invalidNa = na.filter(badNa).length;
+  passes = passes.filter((x) => !badPass(x));
+  na = na.filter((x) => !badNa(x));
+
+  // Gap-fill vs original: after validation, the original review wins for a cell it (validly) covered; gap-fill fills the rest.
+  const cellKey = (x) => `${x.axis}|${targetKey(x.target)}|${x.check}`;
+  const covered = new Set([...findings, ...passes, ...na].filter((x) => x.source !== 'gap-fill').map(cellKey));
+  const keepGapFill = (x) => { if (x.source !== 'gap-fill') return true; const k = cellKey(x); if (covered.has(k)) return false; covered.add(k); return true; };
+  findings = findings.filter(keepGapFill);
+  passes = passes.filter(keepGapFill);
+  na = na.filter(keepGapFill);
 
   // Retry bookkeeping: snapshot an axis file the first time it has invalid findings, and warn if a rewrite lost findings.
-  const merges = (run.stages.S3?.merges ?? 0) + 1;
+  // The merge that follows a gap-fill pass does not consume the invalid-finding retry budget (ADR-0016).
+  const gapFillMerge = run.stages.S3?.gap_fill === 'planned';
+  const merges = gapFillMerge ? (run.stages.S3?.merges ?? 1) : (run.stages.S3?.merges ?? 0) + 1;
   const invalidAxes = [...new Set(invalid.map((i) => i.axis))];
   const warnings = [];
   for (const ax of axesDone) {
@@ -407,6 +484,7 @@ function mergeS3(runDir, run, runPath) {
       const s = readJson(snap); s.valid_findings = validCount; writeJson(snap, s);
     }
   }
+  warnings.push(...vocabWarnings);
   const validationPath = path.join(dir, 'validation.json');
   writeJson(validationPath, { schema: 'harness-review/review-validation@1', merges, invalid_findings: invalid, invalid_passes: invalidPasses, invalid_na: invalidNa, warnings });
 
@@ -414,14 +492,29 @@ function mergeS3(runDir, run, runPath) {
   for (const f of findings) { let id = findingId(f); let n = 2; while (seen.has(id)) id = `${findingId(f)}-${n++}`; seen.add(id); f.id = id; }
   const all = { schema: 'harness-review/review-all@1', axes: axesDone, findings, passes, na };
   writeJson(path.join(dir, 'all.json'), all);
+
+  // Unchecked cells per axis (ADR-0016): universe from the 対象 column minus what the reviewers filled.
+  const hx = exists(path.join(runDir, 'harness.json')) ? readJson(path.join(runDir, 'harness.json')) : null;
+  const fx = exists(path.join(runDir, 'flows.json')) ? readJson(path.join(runDir, 'flows.json')) : null;
+  const { cells } = buildMatrix({ checks, harness: hx, flows: fx, findings, passes, na });
+  const gapCells = cells.filter((c) => c.status === 'unchecked').map((c) => ({ axis: c.axis, check: c.check, title: checks.find((k) => k.id === c.check)?.title ?? '', target: { type: targetType(c.target), id: c.target } }));
+  const gapsByAxis = {};
+  for (const g of gapCells) gapsByAxis[g.axis] = (gapsByAxis[g.axis] ?? 0) + 1;
+  writeJson(path.join(dir, 'gaps.json'), { schema: 'harness-review/review-gaps@1', merges, by_axis: gapsByAxis, total: gapCells.length, cells: gapCells });
   const missingAxes = AXES.filter((a) => !axesDone.includes(a));
   const bySev = {};
   for (const f of findings) bySev[f.severity] = (bySev[f.severity] ?? 0) + 1;
-  // One retry for invalid findings: after the second merge, remaining invalid ones stay excluded and S3 completes.
-  const gap = missingAxes.length > 0 || (invalid.length > 0 && merges < 2);
-  setStage(run, 'S3', { status: gap ? 'running' : 'done', finished_at: gap ? null : now(), merges, findings: findings.length, passes: passes.length, na: na.length, axes: axesDone, invalid_findings: invalid.length });
+  // One retry for missing axes and for invalid findings: after the second merge, a still-missing axis has all its cells
+  // unchecked (they go to the gap-fill batches), and remaining invalid ones stay excluded.
+  const missingRetry = missingAxes.length > 0 && merges < 2 && !gapFillMerge;
+  const invalidRetry = invalid.length > 0 && merges < 2 && !gapFillMerge;
+  // One gap-fill pass per run (ADR-0016): exit 3 once so the orchestrator plans it; after that, remaining gaps are informational.
+  const gapFillState = gapFillMerge ? 'done' : (run.stages.S3?.gap_fill ?? null);
+  const needGapFill = gapCells.length > 0 && !gapFillState && !invalidRetry && !missingRetry;
+  const gap = missingRetry || invalidRetry || needGapFill;
+  setStage(run, 'S3', { status: gap ? 'running' : 'done', finished_at: gap ? null : now(), merges, gap_fill: gapFillState, findings: findings.length, passes: passes.length, na: na.length, axes: axesDone, missing_axes: missingAxes, invalid_findings: invalid.length, unchecked_cells: gapCells.length });
   saveRun(runPath, run);
-  out({ stage: 'S3', all: posix(path.join(dir, 'all.json')), axes: axesDone, missing_axes: missingAxes, findings: findings.length, by_severity: bySev, passes: passes.length, na: na.length, merges, invalid: { findings: invalid.length, axes: invalidAxes, passes: invalidPasses, na: invalidNa, retry: gap && invalid.length > 0 }, warnings, validation: posix(validationPath) });
+  out({ stage: 'S3', all: posix(path.join(dir, 'all.json')), axes: axesDone, missing_axes: missingAxes, missing_retry: missingRetry, findings: findings.length, by_severity: bySev, passes: passes.length, na: na.length, merges, invalid: { findings: invalid.length, axes: invalidAxes, passes: invalidPasses, na: invalidNa, retry: invalidRetry }, warnings, validation: posix(validationPath), gaps: { total: gapCells.length, by_axis: gapsByAxis, gap_fill: gapFillState, retry: needGapFill, file: posix(path.join(dir, 'gaps.json')) } });
   if (gap) process.exit(3);
 }
 
@@ -435,11 +528,74 @@ function loadChecks() {
     if (!file) continue;
     const text = fs.readFileSync(path.join(dir, file), 'utf8');
     for (const line of text.split(/\r?\n/)) {
-      const m = line.match(/^\|\s*([A-E]\d+)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(official|custom)\s*\|/);
-      if (m) checks.push({ id: m[1], axis: ax, title: m[2], severity_hint: m[3], basis: m[4], reference: `references/${file}` });
+      // | ID | チェック | severity 目安 | basis | 対象 |   (対象 column is optional; ADR-0016)
+      const m = line.match(/^\|\s*([A-E]\d+)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(official|custom)\s*\|(?:\s*(.+?)\s*\|)?/);
+      if (m) checks.push({ id: m[1], axis: ax, title: m[2], severity_hint: m[3], basis: m[4], targets: m[5] ? m[5].trim() : null, reference: `references/${file}` });
     }
   }
   return checks;
+}
+
+// ---------------------------------------------------------------- review matrix (ADR-0016)
+
+// Normalize a finding/pass/na target to a matrix row key. Step targets (flow:x#3) fold into their flow.
+function targetKey(t) {
+  const id = t?.id ?? 'harness';
+  return /^flow:.*#\d+$/.test(id) ? id.split('#')[0] : id;
+}
+function targetType(id) {
+  if (id === 'harness') return 'harness';
+  for (const p of ['flow', 'memory', 'hook', 'mcp']) if (id.startsWith(`${p}:`)) return p;
+  return 'file';
+}
+
+// Unknown tokens in a 対象 column would silently produce an empty universe (= "everything checked"); report them instead.
+function invalidTargetTokens(spec) {
+  return String(spec ?? '').split('/').map((s) => s.trim()).filter(Boolean).filter((tok) => !(TARGET_TOKENS.has(tok) || (tok.startsWith('file:') && FILE_KINDS.has(tok.slice(5)))));
+}
+
+// Accept `target` as `{type,id}` or as a bare id string (gap-fill cells are handed out as objects, but be tolerant).
+function asTargetObject(t) {
+  if (typeof t === 'string') return { type: targetType(t), id: t };
+  return t;
+}
+
+// All targets a check applies to, from its 対象 column (`file`, `file:<kind>`, `hook`, `memory`, `mcp`, `flow`, `harness`, joined by ` / `).
+function targetUniverse(spec, harness, flows) {
+  const ids = new Set();
+  for (const tok of String(spec ?? '').split('/').map((s) => s.trim()).filter(Boolean)) {
+    if (tok === 'harness') { ids.add('harness'); }
+    else if (tok === 'hook') { for (const h of harness?.hooks ?? []) ids.add(h.id); }
+    else if (tok === 'mcp') { for (const m of harness?.mcp_servers ?? []) ids.add(`mcp:${m.name}`); }
+    else if (tok === 'memory') { for (const m of harness?.memory ?? []) { if (!m.is_harness_file) ids.add(m.id); } }
+    else if (tok === 'flow') { for (const f of flows?.flows ?? []) ids.add(f.id); }
+    else if (tok === 'file') { for (const f of harness?.files ?? []) { if (!f.binary_or_large) ids.add(f.id); } }
+    else if (tok.startsWith('file:')) { const kind = tok.slice(5); for (const f of harness?.files ?? []) { if (f.kind === kind && !f.binary_or_large) ids.add(f.id); } }
+  }
+  return ids;
+}
+
+// Cells = (check × its universe) ∪ (check × targets that actually have an entry for it). Without a 対象 column, the
+// universe falls back to the targets the axis's reviewer touched (pre-ADR-0016 behaviour).
+function buildMatrix({ checks, harness, flows, findings, rejected = [], passes, na }) {
+  const entries = [...findings, ...rejected, ...passes, ...na];
+  const touched = {};
+  for (const x of entries) (touched[x.axis] ??= new Set()).add(targetKey(x.target));
+  const cells = [], targets = new Map();
+  for (const c of checks) {
+    const universe = c.targets ? targetUniverse(c.targets, harness, flows) : new Set(touched[c.axis] ?? []);
+    const withEntries = entries.filter((x) => x.check === c.id).map((x) => targetKey(x.target));
+    for (const t of new Set([...universe, ...withEntries])) {
+      const fs_ = findings.filter((f) => targetKey(f.target) === t && f.check === c.id).map((f) => f.id ?? null);
+      const rj = rejected.filter((r) => targetKey(r.target) === t && r.check === c.id).length;
+      const ps = passes.some((p) => targetKey(p.target) === t && p.check === c.id);
+      const nn = na.some((p) => targetKey(p.target) === t && p.check === c.id);
+      const status = fs_.length ? 'finding' : ps ? 'pass' : nn ? 'na' : rj ? 'rejected-only' : 'unchecked';
+      cells.push({ target: t, check: c.id, axis: c.axis, status, finding_ids: fs_, in_universe: universe.has(t) });
+      if (!targets.has(t)) targets.set(t, { id: t, type: targetType(t) });
+    }
+  }
+  return { cells, targets: [...targets.values()] };
 }
 
 function mergeS4(runDir, run, runPath) {
@@ -465,25 +621,12 @@ function mergeS4(runDir, run, runPath) {
   const curIds = new Set(kept.map((f) => f.id));
   for (const f of kept) f.status = prev ? (prevIds.has(f.id) ? 'continued' : 'new') : 'new';
   const resolved = prev ? prev.findings.filter((f) => !curIds.has(f.id)).map((f) => ({ id: f.id, axis: f.axis, severity: f.severity, target: f.target, claim: f.claim })) : [];
-  // matrix: per axis, only the targets that axis's reviewer touched × that axis's checks
+  // matrix (ADR-0016): check × its target universe (from the 対象 column), plus any target that has an entry
   const checks = loadChecks();
-  const targets = new Map();
-  const tkey = (t) => t?.id ?? 'harness';
-  const touched = {}; // axis -> Set of target keys
-  for (const x of [...kept, ...rejected.map((r) => r.finding), ...all.passes, ...all.na]) {
-    const k = tkey(x.target);
-    if (!targets.has(k)) targets.set(k, { id: k, type: x.target?.type ?? 'harness' });
-    (touched[x.axis] ??= new Set()).add(k);
-  }
-  const cells = [];
-  for (const c of checks) for (const t of touched[c.axis] ?? []) {
-    const fs_ = kept.filter((f) => tkey(f.target) === t && f.check === c.id).map((f) => f.id);
-    const rj = rejected.filter((r) => tkey(r.finding.target) === t && r.finding.check === c.id).length;
-    const ps = all.passes.some((p) => tkey(p.target) === t && p.check === c.id);
-    const nn = all.na.some((p) => tkey(p.target) === t && p.check === c.id);
-    const status = fs_.length ? 'finding' : ps ? 'pass' : nn ? 'na' : rj ? 'rejected-only' : 'unchecked';
-    cells.push({ target: t, check: c.id, axis: c.axis, status, finding_ids: fs_ });
-  }
+  const hx = exists(path.join(runDir, 'harness.json')) ? readJson(path.join(runDir, 'harness.json')) : null;
+  const fx = exists(path.join(runDir, 'flows.json')) ? readJson(path.join(runDir, 'flows.json')) : null;
+  const { cells, targets: targetList } = buildMatrix({ checks, harness: hx, flows: fx, findings: kept, rejected: rejected.map((r) => r.finding), passes: all.passes, na: all.na });
+  const targets = new Map(targetList.map((t) => [t.id, t]));
   kept.sort((a, b) => (SEVERITY_ORDER[a.severity] ?? 9) - (SEVERITY_ORDER[b.severity] ?? 9) || a.axis.localeCompare(b.axis) || a.id.localeCompare(b.id));
   const count = (arr, k) => arr.reduce((m, x) => { m[x[k]] = (m[x[k]] ?? 0) + 1; return m; }, {});
   const findings = {
@@ -520,7 +663,8 @@ function mergeS4(runDir, run, runPath) {
     stage1: s1 ? { discovered: s1.discovered, extracted: s1.extracted, missing: s1.missing } : null,
     stage2: s2 ? { hints: s2.hints, attributed: s2.attributed, noise: s2.noise, unclassified: s2.unclassified, entries_without_flow: s2.entries_without_flow } : null,
     extractor_judgments: extractorJudgments,
-    stage3: { axes: all.axes, unchecked_cells: cells.filter((c) => c.status === 'unchecked').length, invalid_findings: s3v?.invalid_findings ?? [], invalid_passes: s3v?.invalid_passes ?? 0, invalid_na: s3v?.invalid_na ?? 0, warnings: s3v?.warnings ?? [] },
+    // rejected-only cells are not "seen": their only finding was a hallucination (ADR-0016)
+    stage3: { axes: all.axes, unchecked_cells: cells.filter((c) => c.status === 'unchecked' || c.status === 'rejected-only').length, rejected_only_cells: cells.filter((c) => c.status === 'rejected-only').length, invalid_findings: s3v?.invalid_findings ?? [], invalid_passes: s3v?.invalid_passes ?? 0, invalid_na: s3v?.invalid_na ?? 0, warnings: s3v?.warnings ?? [] },
     stage4: { skipped: !!skip, total: all.findings.length, confirmed: kept.filter((f) => f.verification.verdict === 'CONFIRMED').length, plausible: kept.filter((f) => f.verification.verdict === 'PLAUSIBLE').length, unverified: unverified.length, rejected },
   };
   writeJson(path.join(runDir, 'verification.json'), verification);

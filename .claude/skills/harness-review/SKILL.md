@@ -91,26 +91,29 @@ node "$SKILL/scripts/run.mjs" plan "<run_dir>" S2
 ### S3: レビュー
 
 ```
-node "$SKILL/scripts/run.mjs" stage "<run_dir>" S3 running batches=5
+node "$SKILL/scripts/run.mjs" plan "<run_dir>" S3
 ```
 
-軸 A〜E の 5 つの `harness-reviewer` を**同時に**起動する。プロンプト：
+stdout の `batches[]`（軸 A〜E の 5 つ。各 input に check × 母集団のセル一覧が入っている、ADR-0016）について `harness-reviewer` を**同時に**起動する。プロンプト：
 
 ```
 harness-review S3 のレビューを担当してください。
-- axis: <A|B|C|D|E>
+- axis: <batch.axis>
+- input: <batch.input>
 - reference: <references_dir>/<軸のファイル>   （A-placement.md / B-format.md / C-review.md / D-adr.md / E-judgment-log.md）
 - target_root: <target.path>
 - harness_json: <run_dir>/harness.json
 - flows_json: <run_dir>/flows.json
-- output: <run_dir>/work/review/<axis>.json
+- output: <batch.output>
 - schemas: <schemas>
-手順と制約はあなたの定義に従ってください。報告は 1 行だけ。
+手順と制約はあなたの定義に従ってください。input の cells はすべて finding / pass / na のどれかで埋めてください。報告は 1 行だけ。
 ```
 
 全報告後：`merge "<run_dir>" S3`。merge は S3 出力を機械的に検査する（check id が基準文書に実在し担当軸のものか、severity / basis が列挙値か、evidence（file ＋ quote）・claim・proposal.summary があるか）。形式不備の finding は `all.json` から除外され、理由つきの一覧が `work/review/validation.json` に書かれる。stdout に出るのは件数・軸・そのパスだけ（一覧を自分で読まない）。
 
-- exit 3 で `missing_axes` があれば、その軸だけもう 1 度起動して再 merge
+exit 3 の理由は stdout の 3 つのフィールドで見分け、この順で処理する：`missing_retry` → `invalid.retry` → `gaps.retry`（穴埋め、後述）。
+
+- exit 3 で `missing_retry: true` なら、`missing_axes` の軸だけもう 1 度起動して再 merge（再試行は 1 回。それでも欠けた軸は全セルが未チェックとして穴埋めパスに回る）
 - exit 3 で `invalid.retry: true` なら、`invalid.axes` の軸だけもう 1 度起動する。プロンプトに次を足す：
 
   ```
@@ -120,7 +123,28 @@ harness-review S3 のレビューを担当してください。
 
   merge は 2 回目以降は不備が残っても S3 を完了扱いにする（除外されたまま検証ログに出る）。再試行で finding が減った軸は stdout の `warnings` に出るので、最終報告に含める
 
-ユーザーに 1 行：finding 数と severity 内訳、除外した finding があればその数。
+**穴埋めパス（ADR-0016）**：不備の再試行と欠落の補完が片付いたあと、未チェックのセルがあれば merge S3 は `gaps.retry: true` で exit 3 になる（1 run に 1 回だけ）。そのときは：
+
+```
+node "$SKILL/scripts/run.mjs" plan "<run_dir>" S3 --gaps
+```
+
+stdout の `batches[]` の各 batch（軸ごと、40 セルずつに分割）について `harness-reviewer` を**同時に**起動する。プロンプト：
+
+```
+harness-review S3 の穴埋めモードです（ADR-0016）。
+- input: <batch.input>
+- target_root: <target.path>
+- harness_json: <run_dir>/harness.json
+- flows_json: <run_dir>/flows.json
+- output: <batch.output>
+- schemas: <schemas>
+定義の「穴埋めモード」に従い、未チェックのセルの分だけを output に書いてください（既存の出力は書き換えない）。報告は 1 行だけ。
+```
+
+全報告後にもう 1 度 `merge "<run_dir>" S3`（穴埋め後の merge は不備の再試行予算を消費せず、`gap_fill: done` になって exit 0）。穴埋めは 1 回だけ（`plan S3 --gaps` は 2 度目は batch を出さない）。残った未チェックは検証ログに出る。
+
+ユーザーに 1 行：finding 数と severity 内訳、除外した finding があればその数、穴埋め前後の未チェック数。
 
 ### S4: 敵対的検証
 

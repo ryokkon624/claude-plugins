@@ -15,7 +15,7 @@ harness-reviewer は軸ごとにこのディレクトリの文書 1 つを読み
 各文書は次の節で構成する。
 
 1. **この軸で見ること** — 1 段落
-2. **check 一覧** — `ID | チェック | severity 目安 | basis`。reviewer はこの ID で finding / pass / n.a. を出す
+2. **check 一覧** — `ID | チェック | severity 目安 | basis | 対象`。reviewer はこの ID で finding / pass / n.a. を出す。`対象` は check が当てはまる対象種別（`file`、`file:<kind>`、`hook`、`memory`、`mcp`、`flow`、`harness`。複数は ` / ` 区切り）で、マトリクスの母集団と穴埋めパスの対象になる（ADR-0016）
 3. **公式** — 出典 URL・取得日・要点の言い換え。`[HARD]`（仕組みとして強制される・上限がある）と `[BP]`（推奨）を区別する
 4. **独自** — この リポジトリの経験則。**理由を必ず書く**
 5. **判定の手引き** — reviewer が evidence を探す場所、proposal に書くべき粒度、よくある誤判定
