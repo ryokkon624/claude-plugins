@@ -177,7 +177,11 @@ function cmdPlan(args) {
     }
   } else if (stage === 'S3') {
     const refDir = path.join(SKILL_DIR, 'references');
-    const refFile = (ax) => fs.readdirSync(refDir).find((f) => f.startsWith(`${ax}-`) && f.endsWith('.md'));
+    const refFile = (ax) => {
+      const f = fs.readdirSync(refDir).find((f) => f.startsWith(`${ax}-`) && f.endsWith('.md'));
+      if (!f) throw new Error(`reference document for axis ${ax} not found in ${refDir} (expected ${ax}-*.md)`);
+      return f;
+    };
     const reviewDir = path.join(runDir, 'work', 'review');
     if (!rest.includes('--gaps')) {
       // ADR-0016: the first pass gets the full cell list (check × universe) so coverage does not depend on prose.
