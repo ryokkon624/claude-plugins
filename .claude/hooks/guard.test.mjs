@@ -122,6 +122,12 @@ const cases = [
   ['guard-bash.mjs', B(`node -e 'const l=require("fs").readFileSync("a.md","utf8").split(/\\r?\\n/).find(l=>l.startsWith("| A1 "))'`), 0, 'node -e with regex literal and quoted pipe is not a write outside'],
   ['guard-bash.mjs', B(`echo "a | b" > ${TARGET}/x.txt`), 2, 'quoted pipe does not hide a redirect into target'],
   ['guard-bash.mjs', B('grep -rn "foo|bar" .claude | head'), 0, 'quoted pipe in a read-only command'],
+  ['guard-bash.mjs', B(`node -e 'x.split(/\\s+/g)'`), 0, 'regex literal with flags is not a path'],
+  // guard-bash: backslash paths (C:\\work, \\docs, \\new) are paths, not regex escapes
+  ['guard-bash.mjs', B(`cp a.md ${TARGET.replace(/\//g, '\\\\')}\\\\a.md`), 2, 'backslash Windows path into target is blocked'],
+  ['guard-bash.mjs', B('echo x > C:\\\\temp\\\\new\\\\docs.txt'), 2, 'backslash path outside (\\t \\n \\d segments) is blocked'],
+  ['guard-bash.mjs', B('rm C:/temp/*.log'), 2, 'glob outside the project is still a path'],
+  ['guard-bash.mjs', B('rm docs/*.tmp'), 0, 'glob inside the project is allowed'],
   // guard-bash: robustness
   ['guard-bash.mjs', '{not json', 2, 'unparseable stdin fails closed'],
   ['guard-bash.mjs', { tool_name: 'Bash', tool_input: { command: ['git', 'push'] } }, 0, 'non-string command is stringified, no push to main'],

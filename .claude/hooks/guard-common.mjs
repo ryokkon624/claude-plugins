@@ -67,7 +67,7 @@ export function pathTokens(cmd) {
     if (/^[a-z]+:\/\//i.test(t)) continue;            // URLs
     if (NULL_DEVICES.has(t.toLowerCase())) continue;
     if (/^-/.test(t)) continue;
-    if (/[?*()]|\\[rntsdw]/.test(t)) continue;         // regex literals / globs (/\r?\n/, *.md) are not paths
+    if (/^\/.*\/[a-z]*$/.test(t) && /\\[A-Za-z]|[?*+|[\]]/.test(t)) continue; // a regex literal (/\r?\n/, /\s+/g) is not a path; Windows paths (C:\work, \docs) are
     out.push(t);
   }
   return out;
