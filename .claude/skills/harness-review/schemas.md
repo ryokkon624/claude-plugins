@@ -269,6 +269,17 @@ merge S3 は S3 出力を機械的に検査し、形式不備の finding を `al
 
 `verification.json` の `stage3` にはこの内容（`invalid_findings` / `invalid_passes` / `invalid_na` / `warnings`）と `unchecked_cells` が入る。`run.json` の `S3` には `merges` と `invalid_findings`（件数）が入る。
 
+## work/review/gaps.json と穴埋め batch（merge S3 / plan S3 --gaps が生成、ADR-0016）
+
+各 check には `references/` の「対象」列で対象種別（`file`、`file:<kind>`、`hook`、`memory`、`mcp`、`flow`、`harness`、` / ` 区切り）が定義されている。母集団＝その種別の対象すべて（`harness.json` / `flows.json` から列挙）。merge S3 は母集団 × check のうち finding / pass / na の無いセルを `gaps.json` に書く。欠落した軸（出力ファイルが無い、または JSON が壊れている）は 1 回再試行し、それでも欠ければ全セルが未チェックとして穴埋めに回る。
+
+```json
+{ "schema": "harness-review/review-gaps@1", "merges": 1, "total": 42, "by_axis": { "A": 30, "D": 12 },
+  "cells": [ { "axis": "A", "check": "A3", "title": "rule の paths の有無が…", "target": { "type": "file", "id": "rule:git" } } ] }
+```
+
+`plan S3`（1 パス目）は軸ごとに `work/review/<axis>.input.json`（`kind: "review"`、`axis`、`reference`、`checks[]`、`cells[]` ＝ check × 母集団。`target` は `{ type, id }`）を書き、reviewer は cells をすべて埋める。未チェックがあり穴埋めがまだなら merge S3 は `gaps.retry: true` で exit 3 になる（1 run に 1 回）。`plan S3 --gaps` は未チェックのある軸ごとに 40 セルずつ `work/review/gaps-<axis>-<n>.input.json`（`kind: "gaps"`、`axis`、`reference`、`existing_output`（軸の出力が無ければ `null`）、`cells[]`）を書く。harness-reviewer は穴埋めモードで **`<axis>.gaps-<n>.json`**（`review@1` と同じ形、未チェック分だけ、`target` はセルのオブジェクトをそのまま）を書き、merge S3 が `<axis>.json` と連結する（同じ対象 × check は既存が優先、連結分には `source: "gap-fill"`）。merge は文字列の `target` を `{ type, id }` に正規化し、`pass` に `note`、`na` に `reason` が無いものを除外し、`対象` 列の未知トークンを `warnings` に出す。既存出力と穴埋め出力の重複排除は**検査後**に行う（不備で除外されたセルは穴埋めで埋められる）。S4 後、REJECTED しか無いセル（`rejected-only`）は未チェックとして数える。穴埋め後の merge は不備の再試行予算（`merges`）を消費しない。`run.json` の `S3.gap_fill` は `null → planned → done`。step を対象にした finding（`flow:x#3`）はマトリクスではフロー `flow:x` のセルに帰属する。母集団外の対象に書かれた finding / pass / na はセルを作り `in_universe: false` で印を付ける（消さない）。
+
 ## S4: work/verify/<batch>.json（finding-verifier が書く）
 
 batch は対象ファイルごとにまとめて 8 件程度（`verify-1`, `verify-2`, …）。
@@ -310,7 +321,7 @@ batch は対象ファイルごとにまとめて 8 件程度（`verify-1`, `veri
   "matrix": {
     "checks": [ { "id": "A1", "axis": "A", "title": "..." } ],
     "targets": [ { "id": "skill:developer-workflow", "type": "file" } ],
-    "cells": [ { "target": "skill:developer-workflow", "check": "A1", "status": "pass", "finding_ids": [] } ]
+    "cells": [ { "target": "skill:developer-workflow", "check": "A1", "axis": "A", "status": "pass", "finding_ids": [], "in_universe": true } ]
   }
 }
 ```

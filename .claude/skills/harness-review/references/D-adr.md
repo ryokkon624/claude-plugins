@@ -6,14 +6,14 @@
 
 ## check 一覧
 
-| ID | チェック | severity 目安 | basis |
-|---|---|---|---|
-| D1 | 決定を記録する場所が定義されている（`docs/adr/`、`decisions/`、memory 内の決定セクション等） | should | custom |
-| D2 | 決定をした直後に記録する step / 指示がフローにある | should | custom |
-| D3 | 関連する作業の着手時に決定記録を読む step / 指示がある | should | custom |
-| D4 | 1 決定 1 エントリで、Context（背景）・Decision（決定）・Consequences（結果・代償）・Status（有効 / 置換済み）に相当する要素を持つ | nice to have | custom |
-| D5 | 決定を変えるときの運用（既存を書き換えず新規追加、旧を Superseded にする）が定義されている | nice to have | custom |
-| D6 | CLAUDE.md や rules に書かれた「〜とする」「〜を採用」という決定に、経緯を辿れる参照（ADR へのリンク等）がある | nice to have | custom |
+| ID | チェック | severity 目安 | basis | 対象 |
+|---|---|---|---|---|
+| D1 | 決定を記録する場所が定義されている（`docs/adr/`、`decisions/`、memory 内の決定セクション等） | should | custom | harness |
+| D2 | 決定をした直後に記録する step / 指示がフローにある | should | custom | flow |
+| D3 | 関連する作業の着手時に決定記録を読む step / 指示がある | should | custom | flow |
+| D4 | 1 決定 1 エントリで、Context（背景）・Decision（決定）・Consequences（結果・代償）・Status（有効 / 置換済み）に相当する要素を持つ | nice to have | custom | memory |
+| D5 | 決定を変えるときの運用（既存を書き換えず新規追加、旧を Superseded にする）が定義されている | nice to have | custom | harness |
+| D6 | CLAUDE.md や rules に書かれた「〜とする」「〜を採用」という決定に、経緯を辿れる参照（ADR へのリンク等）がある | nice to have | custom | file:claude-md / file:rule |
 
 ## 公式
 

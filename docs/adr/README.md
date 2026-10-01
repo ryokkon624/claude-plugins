@@ -13,7 +13,7 @@ harness-review の設計判断を 1 決定 1 ファイルで記録する。形�
 | [0003](0003-harness-scope.md) | Accepted | ハーネスの範囲はプロジェクトレベル全部（hooks / settings / MCP を含む）とし、ユーザーレベルは対象外とする |
 | [0004](0004-facts-vs-judgment-finding-triplet.md) | Accepted | ①②は事実、③は判断として分離し、finding は 根拠 → 指摘 → 改善案 の 3 点セットとする |
 | [0005](0005-two-layer-verification.md) | Accepted | 検証は 2 層とし、①②は網羅性検証、③は別コンテキストによる敵対的検証を行う |
-| [0006](0006-severity-and-pass.md) | Accepted | severity は must / should / nice to have の 3 段階とし、pass は findings とは別セクションに出す |
+| [0006](0006-severity-and-pass.md) | Accepted（母集団は 0016 で明確化） | severity は must / should / nice to have の 3 段階とし、pass は findings とは別セクションに出す |
 | [0007](0007-two-tier-reference-model.md) | Accepted | 判断基準は references/ に「公式」と「独自」の 2 層で持ち、finding に basis を付ける |
 | [0008](0008-flow-definition.md) | Accepted | フローは「入口があるものすべて」と定義し、散文の手順（implicit）も含めて kind で分類する |
 | [0009](0009-subagents-write-files.md) | Accepted（範囲は 0013 で明確化） | subagent は結果をファイルに書き、オーケストレータにデータを返さない |
@@ -23,3 +23,4 @@ harness-review の設計判断を 1 決定 1 ファイルで記録する。形�
 | [0013](0013-verify-adrs-adversarially.md) | Accepted | 新しい ADR は別コンテキストで反証してから Accepted にする |
 | [0014](0014-write-guard-hooks.md) | Accepted | プロジェクト外への書き込みと main への直接 push を PreToolUse hook で機械的に止める |
 | [0015](0015-extractor-judgment-notes.md) | Accepted | 抽出者（S1 / S2）の裁量判断を judgment_notes として記録し、検証ログと最終報告に載せる |
+| [0016](0016-review-matrix-universe-and-gap-fill.md) | Accepted | ③の check ごとに対象種別を定義して母集団を固定し、未チェックのセルは第 2 パスで埋める |

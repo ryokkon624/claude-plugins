@@ -284,7 +284,7 @@ function matrixSection(findings) {
     const axTargets = [...new Set(cells.filter((c) => c.axis === ax).map((c) => c.target))].sort();
     if (!axChecks.length || !axTargets.length) return `<h3>${esc(ax)} ${esc(AXES[ax])}</h3><p class="empty">この軸の出力がありません</p>`;
     const head = axChecks.map((c) => `<th title="${esc(c.title)}">${esc(c.id)}</th>`).join('');
-    const rows = axTargets.map((t) => `<tr><th class="tgt"><code>${esc(t)}</code></th>${axChecks.map((c) => { const x = cell.get(`${t}|${c.id}`); const st = x?.status ?? 'unchecked'; const link = x?.finding_ids?.length ? `<a href="#${esc(x.finding_ids[0])}" title="${esc(x.finding_ids.join(', '))}">${sym[st]}${x.finding_ids.length > 1 ? x.finding_ids.length : ''}</a>` : sym[st]; return `<td class="m-${st}">${link}</td>`; }).join('')}</tr>`).join('\n');
+    const rows = axTargets.map((t) => `<tr><th class="tgt"><code>${esc(t)}</code></th>${axChecks.map((c) => { const x = cell.get(`${t}|${c.id}`); if (!x) return '<td class="m-none" title="この check の対象種別ではない">·</td>'; const st = x.status; const link = x.finding_ids?.length ? `<a href="#${esc(x.finding_ids[0])}" title="${esc(x.finding_ids.join(', '))}">${sym[st]}${x.finding_ids.length > 1 ? x.finding_ids.length : ''}</a>` : sym[st]; return `<td class="m-${st}${x.in_universe === false ? ' m-extra' : ''}"${x.in_universe === false ? ' title="check の対象種別ではないがレビュアーが記入した"' : ''}>${link}</td>`; }).join('')}</tr>`).join('\n');
     const counts = {};
     for (const c of cells.filter((c) => c.axis === ax)) counts[c.status] = (counts[c.status] ?? 0) + 1;
     const checkList = axChecks.map((c) => `<li><code>${esc(c.id)}</code> ${esc(c.title)} <span class="s">(${esc(c.severity_hint)}, ${esc(c.basis)})</span></li>`).join('');
@@ -296,7 +296,7 @@ function matrixSection(findings) {
   return `<section id="matrix">
 <h2>チェックマトリクス</h2>
 <p>${legend}</p>
-<p class="s">軸ごとに、その軸のレビュアーが扱った対象 × その軸の check。● finding、✓ pass（見て問題なし）、— n.a.、? 未チェック（レビュアーの見落とし候補）、✕ 検証で却下された finding のみ。</p>
+<p class="s">軸ごとに、各 check の対象種別（references の「対象」列）に当てはまる対象 × check。● finding、✓ pass（見て問題なし）、— n.a.、? 未チェック（母集団にあるのにレビュアーが記入していない）、✕ 検証で却下された finding のみ、· 対象外（その check の対象種別ではない）。</p>
 ${axisTables}
 </section>`;
 }
@@ -368,7 +368,7 @@ table{border-collapse:collapse;width:100%;font-size:13px;background:var(--card)}
 details.fd{margin-top:4px;font-size:12px}details.fd summary{cursor:pointer;color:var(--acc)}details.fd .bl{display:inline;margin-right:4px}details.fd .h1{font-weight:700}details.fd .h2{font-weight:600}details.fd .h3,details.fd .h4{color:var(--muted)}ul.ops{margin:0;padding-left:16px}
 details.flow{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 14px;margin:10px 0}details.flow>summary{cursor:pointer;padding:4px 0}details.flow[open]>summary{border-bottom:1px solid var(--line);margin-bottom:8px}pre.mermaid{background:#fff;border:1px dashed var(--line);text-align:center}
 table.matrix th.tgt{text-align:left;white-space:nowrap}table.matrix td{text-align:center;padding:2px 4px;font-size:12px;min-width:26px}table.matrix .rot{display:inline-block;writing-mode:vertical-rl;transform:rotate(180deg);font-size:11px}
-.m-finding{background:#fde8e8}.m-pass{background:#e8f4ea;color:var(--ok)}.m-na{color:#bbb}.m-unchecked{background:#fff4e0;color:var(--warn)}.m-rejected-only{background:#f0f1f3;color:var(--muted)}table.matrix td a{color:var(--must);text-decoration:none;font-weight:700}
+.m-finding{background:#fde8e8}.m-pass{background:#e8f4ea;color:var(--ok)}.m-na{color:#bbb}.m-unchecked{background:#fff4e0;color:var(--warn)}.m-rejected-only{background:#f0f1f3;color:var(--muted)}.m-none{color:#ddd}.m-extra{outline:1px dashed #bbb;outline-offset:-2px}table.matrix td a{color:var(--must);text-decoration:none;font-weight:700}
 .pill.st-done{background:#e8f4ea}.pill.st-running{background:#fff4e0}.pill.st-failed{background:#fde8e8}.pill.st-pending{color:var(--muted)}
 details.resolved{margin-top:16px}
 @media (max-width:720px){.row{grid-template-columns:1fr}nav.toc{gap:10px}}

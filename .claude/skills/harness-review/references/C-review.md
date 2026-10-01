@@ -14,15 +14,15 @@
 
 ## check 一覧
 
-| ID | チェック | severity 目安 | basis |
-|---|---|---|---|
-| C1 | goal が明確な作業に、基準を回す検査の step がある（テスト実行、lint、spec / AC 照合、ビルド） | should | official |
-| C2 | 正解のない作業に、別コンテキストによる敵対的検証（反証を試み verdict を出す）の step がある | should | custom |
-| C3 | レビュアー / 検証者が作業者と別コンテキストである（同じセッション・同じ agent 内の自己レビューではない） | should | official |
-| C4 | 不合格時の経路が定義されている（誰に差し戻すか、回数上限、人間へのエスカレーション） | should | custom |
-| C5 | レビューの基準が明文化され、レビュアーに渡っている（spec / AC / 規約 / チェックリスト。「正確性と要件に関わるギャップだけを報告せよ」の類の絞り込み） | should | official |
-| C6 | レビュアー / 作業者が証拠を出すよう指示されている（テスト出力、該当行、実行コマンドと結果） | nice to have | official |
-| C7 | 決定的にできる検査が、散文の依頼ではなく hook / script で強制されている | nice to have | official |
+| ID | チェック | severity 目安 | basis | 対象 |
+|---|---|---|---|---|
+| C1 | goal が明確な作業に、基準を回す検査の step がある（テスト実行、lint、spec / AC 照合、ビルド） | should | official | flow |
+| C2 | 正解のない作業に、別コンテキストによる敵対的検証（反証を試み verdict を出す）の step がある | should | custom | flow |
+| C3 | レビュアー / 検証者が作業者と別コンテキストである（同じセッション・同じ agent 内の自己レビューではない） | should | official | flow |
+| C4 | 不合格時の経路が定義されている（誰に差し戻すか、回数上限、人間へのエスカレーション） | should | custom | flow |
+| C5 | レビューの基準が明文化され、レビュアーに渡っている（spec / AC / 規約 / チェックリスト。「正確性と要件に関わるギャップだけを報告せよ」の類の絞り込み） | should | official | flow |
+| C6 | レビュアー / 作業者が証拠を出すよう指示されている（テスト出力、該当行、実行コマンドと結果） | nice to have | official | flow |
+| C7 | 決定的にできる検査が、散文の依頼ではなく hook / script で強制されている | nice to have | official | flow |
 
 ## 公式
 

@@ -6,18 +6,18 @@
 
 ## check 一覧
 
-| ID | チェック | severity 目安 | basis |
-|---|---|---|---|
-| B1 | frontmatter が有効：先頭行が `---`、YAML が壊れていない。agent は `name` と `description` がある（無いとロードされない）。skill は `description` がある（無いと本文 1 行目が代用される） | must（agent がロードされない）/ should | official |
-| B2 | 未知の frontmatter キーがない（エラーなしで無視される）。rule に `paths` 以外のキーがない。command に `name` / `paths` がない | nice to have | official |
-| B3 | description が「何であるか」ではなく「**いつ使うか**」を、主要ユースケースを先頭にして書いている。トリガー句がある。skill は `description` ＋ `when_to_use` が 1,536 文字以内。agent の description は短く、詳細は本文へ | should | official |
-| B4 | 冒頭（本文の最初の数行）で、agent は 役割・ゴール・出力形式、skill / rule は 何をするか・いつ参照するか、CLAUDE.md は プロジェクトが何か、が分かる。前置きや背景説明で始まっていない | should | custom |
-| B5 | 本文が「何をするか」を命令形で書き、経緯や解説の物語になっていない。skill 本文は 500 行以下、詳細は同梱ファイルに分け、本文から参照している | should | official |
-| B6 | 見出しと箇条書きで構造化されている（密な段落でない） | nice to have | official |
-| B7 | hooks の定義が正しい：スクリプトが存在し実行可能、ポリシーを強制する hook が `exit 2` を使っている（`exit 1` はブロックしない）、防ぐべき操作を `PreToolUse` で gate している（`PostToolUse` は取り消せない）、matcher が意図どおり | must（gate が効いていない）/ should | official |
-| B8 | 名前の整合：skill の `name` とディレクトリ名、agent の `name` とファイル名が一致している。plugin の `name` が kebab-case | nice to have | custom |
-| B9 | settings.json / settings.local.json / .mcp.json / hooks.json / plugin.json が有効な JSON で、既知の構造に従っている | must | official |
-| B10 | skill の `allowed-tools` が最小限（許可を**与える**ものであり制限ではない。workspace trust に関係なく効く） | should | official |
+| ID | チェック | severity 目安 | basis | 対象 |
+|---|---|---|---|---|
+| B1 | frontmatter が有効：先頭行が `---`、YAML が壊れていない。agent は `name` と `description` がある（無いとロードされない）。skill は `description` がある（無いと本文 1 行目が代用される） | must（agent がロードされない）/ should | official | file:skill / file:agent / file:rule / file:command / file:claude-md |
+| B2 | 未知の frontmatter キーがない（エラーなしで無視される）。rule に `paths` 以外のキーがない。command に `name` / `paths` がない | nice to have | official | file:skill / file:agent / file:rule / file:command |
+| B3 | description が「何であるか」ではなく「**いつ使うか**」を、主要ユースケースを先頭にして書いている。トリガー句がある。skill は `description` ＋ `when_to_use` が 1,536 文字以内。agent の description は短く、詳細は本文へ | should | official | file:skill / file:agent |
+| B4 | 冒頭（本文の最初の数行）で、agent は 役割・ゴール・出力形式、skill / rule は 何をするか・いつ参照するか、CLAUDE.md は プロジェクトが何か、が分かる。前置きや背景説明で始まっていない | should | custom | file:skill / file:agent / file:rule / file:command / file:claude-md |
+| B5 | 本文が「何をするか」を命令形で書き、経緯や解説の物語になっていない。skill 本文は 500 行以下、詳細は同梱ファイルに分け、本文から参照している | should | official | file:skill / file:claude-md |
+| B6 | 見出しと箇条書きで構造化されている（密な段落でない） | nice to have | official | file:claude-md / file:rule / file:skill / file:agent |
+| B7 | hooks の定義が正しい：スクリプトが存在し実行可能、ポリシーを強制する hook が `exit 2` を使っている（`exit 1` はブロックしない）、防ぐべき操作を `PreToolUse` で gate している（`PostToolUse` は取り消せない）、matcher が意図どおり | must（gate が効いていない）/ should | official | hook / file:hook-script |
+| B8 | 名前の整合：skill の `name` とディレクトリ名、agent の `name` とファイル名が一致している。plugin の `name` が kebab-case | nice to have | custom | file:skill / file:agent |
+| B9 | settings.json / settings.local.json / .mcp.json / hooks.json / plugin.json が有効な JSON で、既知の構造に従っている | must | official | file:settings / file:mcp-config / file:hooks-config / file:plugin-manifest |
+| B10 | skill の `allowed-tools` が最小限（許可を**与える**ものであり制限ではない。workspace trust に関係なく効く） | should | official | file:skill |
 
 ## 公式
 
