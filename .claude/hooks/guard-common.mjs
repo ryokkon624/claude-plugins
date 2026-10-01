@@ -67,7 +67,9 @@ export function pathTokens(cmd) {
     if (/^[a-z]+:\/\//i.test(t)) continue;            // URLs
     if (NULL_DEVICES.has(t.toLowerCase())) continue;
     if (/^-/.test(t)) continue;
-    if (/^\/.*\/[a-z]*$/.test(t) && /\\[A-Za-z]|[?*+|[\]]/.test(t)) continue; // a regex literal (/\r?\n/, /\s+/g) is not a path; Windows paths (C:\work, \docs) are
+    // A JS regex literal (/\r?\n/, /\s+/g) is not a path: one slash-delimited body with no unescaped `/`, containing a
+    // backslash escape, followed only by regex flags. Real paths (/c/work/foo+bar/docs, C:\work, \docs) never match this shape.
+    if (/^\/(?:[^\/\\]|\\.)+\/[dgimsuvy]*$/.test(t) && /\\[A-Za-z]/.test(t)) continue;
     out.push(t);
   }
   return out;

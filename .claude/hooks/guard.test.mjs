@@ -128,6 +128,8 @@ const cases = [
   ['guard-bash.mjs', B('echo x > C:\\\\temp\\\\new\\\\docs.txt'), 2, 'backslash path outside (\\t \\n \\d segments) is blocked'],
   ['guard-bash.mjs', B('rm C:/temp/*.log'), 2, 'glob outside the project is still a path'],
   ['guard-bash.mjs', B('rm docs/*.tmp'), 0, 'glob inside the project is allowed'],
+  ['guard-bash.mjs', B('rm /c/work/foo+bar/docs'), 2, 'POSIX path with + outside the project is still a path'],
+  ['guard-bash.mjs', B('echo x > /c/temp/a[1]/out'), 2, 'POSIX path with [ ] outside the project is still a path'],
   // guard-bash: robustness
   ['guard-bash.mjs', '{not json', 2, 'unparseable stdin fails closed'],
   ['guard-bash.mjs', { tool_name: 'Bash', tool_input: { command: ['git', 'push'] } }, 0, 'non-string command is stringified, no push to main'],
